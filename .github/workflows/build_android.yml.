@@ -1,0 +1,45 @@
+name: 🚀 Build Android GDExtension
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install SCons
+        run: pip install scons
+
+      - name: Set up Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+
+      - name: Clone godot-cpp & Dependencies
+        run: |
+          git clone --recursive -b master https://github.com/godotengine/godot-cpp.git
+          mkdir -p libs
+          git clone https://github.com/zeux/meshoptimizer.git libs/meshoptimizer
+          wget -q https://raw.githubusercontent.com/jkuhlmann/cgltf/master/cgltf.h -O libs/cgltf.h
+
+      - name: Compile GDExtension
+        run: |
+          scons platform=android target=template_debug arch=arm64 api_version=4.7 ANDROID_HOME=$ANDROID_NDK_ROOT -j$(nproc)
+
+      - name: Upload Artifact (.so file)
+        uses: actions/upload-artifact@v4
+        with:
+          name: libcarstudio-android-arm64
+          path: bin/libcarstudio.android.template_debug.arm64.so
+          
