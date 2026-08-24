@@ -2,6 +2,11 @@
 #include <godot_cpp/core/class_db.hpp>
 #include "../libs/meshoptimizer/src/meshoptimizer.h"
 
+// حل تعارض الأسماء بين جودوت ومكتبة cgltf
+#ifdef memfree
+#undef memfree
+#endif
+
 #define CGLTF_IMPLEMENTATION
 #include "../libs/cgltf.h"
 
