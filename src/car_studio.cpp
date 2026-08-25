@@ -1,6 +1,9 @@
 #include "car_studio.h"
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/classes/surface_tool.hpp>
+#include <godot_cpp/variant/vector3.hpp>
+#include <godot_cpp/variant/color.hpp>
+#include <godot_cpp/variant/vector2.hpp>
 
 using namespace godot;
 
@@ -28,7 +31,7 @@ CarStudio::CarStudio() {
 CarStudio::~CarStudio() {}
 
 String CarStudio::get_system_info() {
-    return "🔥 Open3D Core Powered by PMP-Library & Pixar OpenSubdiv!";
+    return "🔥 Open3D Core: Real Manifold Extrusion (Zero Trapped Faces)!";
 }
 
 void CarStudio::create_cube(float size) {
@@ -45,12 +48,12 @@ void CarStudio::create_cube(float size) {
     auto v6 = m_mesh.add_vertex(pmp::Point( h, size,  h));
     auto v7 = m_mesh.add_vertex(pmp::Point(-h, size,  h));
 
-    m_mesh.add_quad(v0, v4, v5, v1);
-    m_mesh.add_quad(v1, v5, v6, v2);
-    m_mesh.add_quad(v2, v6, v7, v3);
-    m_mesh.add_quad(v3, v7, v4, v0);
-    m_mesh.add_quad(v4, v7, v6, v5);
-    m_mesh.add_quad(v0, v1, v2, v3);
+    m_mesh.add_quad(v0, v4, v5, v1); // Front
+    m_mesh.add_quad(v1, v5, v6, v2); // Right
+    m_mesh.add_quad(v2, v6, v7, v3); // Back
+    m_mesh.add_quad(v3, v7, v4, v0); // Left
+    m_mesh.add_quad(v4, v7, v6, v5); // Top
+    m_mesh.add_quad(v0, v1, v2, v3); // Bottom
 }
 
 void CarStudio::select_face(int face_index) {
@@ -64,7 +67,9 @@ int CarStudio::get_face_count() const { return (int)m_mesh.n_faces(); }
 int CarStudio::get_vertex_count() const { return (int)m_mesh.n_vertices(); }
 
 Vector3 CarStudio::get_selected_face_center() const {
-    if (m_selected_face < 0 || m_selected_face >= (int)m_mesh.n_faces()) return Vector3.ZERO;
+    if (m_selected_face < 0 || m_selected_face >= (int)m_mesh.n_faces()) {
+        return Vector3(0.0f, 0.0f, 0.0f);
+    }
     pmp::Face f(m_selected_face);
     pmp::Point c(0, 0, 0);
     int count = 0;
@@ -89,7 +94,12 @@ bool CarStudio::extrude_selected_face(float distance) {
     pmp::Point p0 = m_mesh.position(old_verts[0]);
     pmp::Point p1 = m_mesh.position(old_verts[1]);
     pmp::Point p2 = m_mesh.position(old_verts[2]);
-    pmp::Point normal = pmp::normalize(pmp::cross(p1 - p0, p2 - p0));
+
+    Vector3 gp0(p0[0], p0[1], p0[2]);
+    Vector3 gp1(p1[0], p1[1], p1[2]);
+    Vector3 gp2(p2[0], p2[1], p2[2]);
+    Vector3 gnorm = (gp1 - gp0).cross(gp2 - gp0).normalized();
+    pmp::Point normal(gnorm.x, gnorm.y, gnorm.z);
 
     std::vector<pmp::Vertex> new_verts;
     for (int i = 0; i < 4; ++i) {
@@ -97,16 +107,13 @@ bool CarStudio::extrude_selected_face(float distance) {
         new_verts.push_back(m_mesh.add_vertex(new_pos));
     }
 
-    // حذف الوجه القديم لمنع أي وجه محبوس في الداخل
     m_mesh.delete_face(old_face);
 
-    // بناء الجدران الـ 4
     for (int i = 0; i < 4; ++i) {
         int nxt = (i + 1) % 4;
         m_mesh.add_quad(old_verts[i], new_verts[i], new_verts[nxt], old_verts[nxt]);
     }
 
-    // إنشاء الوجه الجديد في القمة
     auto top_face = m_mesh.add_quad(new_verts[0], new_verts[1], new_verts[2], new_verts[3]);
     m_selected_face = top_face.idx();
     return true;
@@ -115,7 +122,7 @@ bool CarStudio::extrude_selected_face(float distance) {
 bool CarStudio::delete_selected_face() {
     if (m_selected_face < 0 || m_selected_face >= (int)m_mesh.n_faces()) return false;
     m_mesh.delete_face(pmp::Face(m_selected_face));
-    m_mesh.garbage_collection(); // تنظيف النقاط والحواف اليتيمة آلياً
+    m_mesh.garbage_collection();
 
     if (m_selected_face >= (int)m_mesh.n_faces()) {
         m_selected_face = (int)m_mesh.n_faces() - 1;
