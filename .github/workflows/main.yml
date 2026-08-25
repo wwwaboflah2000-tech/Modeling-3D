@@ -51,13 +51,15 @@ jobs:
 
       - name: Compile GDExtension
         run: |
+          mkdir -p bin
           scons platform=android target=template_debug arch=arm64 api_version=4.7 ANDROID_HOME=$ANDROID_HOME -j$(nproc)
 
-      - name: List Generated .so Files
-        run: find . -name "*.so"
+      - name: Check Output Folder
+        run: |
+          ls -la bin/
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: libcarstudio-android-arm64
-          path: "**/*.so"
+          path: bin/
