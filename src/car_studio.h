@@ -5,10 +5,10 @@
 #include <godot_cpp/classes/array_mesh.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 
-// استدعاء نواة مكتبة PMP الرسمية
-#include <pmp/SurfaceMesh.h>
-#include <pmp/algorithms/Subdivision.h>
-#include <pmp/algorithms/Normals.h>
+// استدعاء ملفات PMP بالأسماء الرسمية بحروف صغيرة
+#include <pmp/surface_mesh.h>
+#include <pmp/algorithms/subdivision.h>
+#include <pmp/algorithms/normals.h>
 
 namespace godot {
 
