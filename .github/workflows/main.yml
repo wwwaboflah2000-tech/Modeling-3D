@@ -25,10 +25,13 @@ jobs:
         run: |
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;28.1.13356709"
 
-      - name: Clone godot-cpp & pmp-library
+      - name: Clone godot-cpp, pmp-library & Eigen
         run: |
           git clone --recursive -b master https://github.com/godotengine/godot-cpp.git
           mkdir -p libs
+          if [ ! -d "libs/eigen" ]; then
+            git clone --depth 1 https://gitlab.com/libeigen/eigen.git libs/eigen
+          fi
           if [ ! -d "libs/pmp-library" ]; then
             git clone --depth 1 https://github.com/pmp-library/pmp-library.git libs/pmp-library
           fi
