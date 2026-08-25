@@ -2,7 +2,6 @@ import os
 
 env = SConscript("godot-cpp/SConstruct", {"api_version": "4.7"})
 
-# إضافة مسارات الهيدرز للمكتبات
 env.Append(CPPPATH=[
     "src/",
     "libs/meshoptimizer/src/",
@@ -10,7 +9,6 @@ env.Append(CPPPATH=[
     "libs/OpenSubdiv/opensubdiv/"
 ])
 
-# تجميع مصادر C++ الخاصة بنا ومصادر OpenSubdiv و MeshOptimizer
 sources = (
     Glob("src/*.cpp") +
     Glob("libs/meshoptimizer/src/*.cpp") +
@@ -19,8 +17,10 @@ sources = (
     Glob("libs/OpenSubdiv/opensubdiv/sdc/*.cpp")
 )
 
+# الصيغة المعيارية الرسمية لجودوت لإنشاء ملف الـ .so
 library = env.SharedLibrary(
-    target="bin/libcarstudio.{}.{}.{}".format(env["platform"], env["target"], env["arch"]),
+    "bin/libcarstudio{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
     source=sources,
 )
+
 Default(library)
