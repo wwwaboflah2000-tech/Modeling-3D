@@ -4,7 +4,8 @@ env = SConscript("godot-cpp/SConstruct", {"api_version": "4.7"})
 
 env.Append(CPPPATH=[
     "src/",
-    "libs/pmp-library/src/"
+    "libs/pmp-library/src/",
+    "libs/eigen/"
 ])
 
 sources = (
