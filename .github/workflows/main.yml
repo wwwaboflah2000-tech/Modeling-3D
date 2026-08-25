@@ -25,10 +25,11 @@ jobs:
         run: |
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;28.1.13356709"
 
-      - name: Clone godot-cpp & Dependencies
+      - name: Clone godot-cpp, Pixar OpenSubdiv & Dependencies
         run: |
           git clone --recursive -b master https://github.com/godotengine/godot-cpp.git
           mkdir -p libs
+          git clone --depth 1 https://github.com/PixarAnimationStudios/OpenSubdiv.git libs/OpenSubdiv
           git clone https://github.com/zeux/meshoptimizer.git libs/meshoptimizer
           wget -q https://raw.githubusercontent.com/jkuhlmann/cgltf/master/cgltf.h -O libs/cgltf.h
 
