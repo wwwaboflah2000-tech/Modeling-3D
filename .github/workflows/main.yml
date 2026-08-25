@@ -25,20 +25,39 @@ jobs:
         run: |
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;28.1.13356709"
 
+      - name: Cache godot-cpp
+        uses: actions/cache@v4
+        with:
+          path: |
+            godot-cpp/bin
+            godot-cpp/gen
+          key: godot-cpp-android-arm64-api4.7
+
       - name: Clone godot-cpp, Pixar OpenSubdiv & Dependencies
         run: |
-          git clone --recursive -b master https://github.com/godotengine/godot-cpp.git
+          if [ ! -d "godot-cpp" ]; then
+            git clone --recursive -b master https://github.com/godotengine/godot-cpp.git
+          fi
           mkdir -p libs
-          git clone --depth 1 https://github.com/PixarAnimationStudios/OpenSubdiv.git libs/OpenSubdiv
-          git clone https://github.com/zeux/meshoptimizer.git libs/meshoptimizer
-          wget -q https://raw.githubusercontent.com/jkuhlmann/cgltf/master/cgltf.h -O libs/cgltf.h
+          if [ ! -d "libs/OpenSubdiv" ]; then
+            git clone --depth 1 https://github.com/PixarAnimationStudios/OpenSubdiv.git libs/OpenSubdiv
+          fi
+          if [ ! -d "libs/meshoptimizer" ]; then
+            git clone https://github.com/zeux/meshoptimizer.git libs/meshoptimizer
+          fi
+          if [ ! -f "libs/cgltf.h" ]; then
+            wget -q https://raw.githubusercontent.com/jkuhlmann/cgltf/master/cgltf.h -O libs/cgltf.h
+          fi
 
       - name: Compile GDExtension
         run: |
           scons platform=android target=template_debug arch=arm64 api_version=4.7 ANDROID_HOME=$ANDROID_HOME -j$(nproc)
 
+      - name: List Generated .so Files
+        run: find . -name "*.so"
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: libcarstudio-android-arm64
-          path: bin/libcarstudio.android.template_debug.arm64.so
+          path: "**/*.so"
