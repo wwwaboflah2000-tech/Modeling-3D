@@ -37,7 +37,7 @@ CarStudio::CarStudio() {
 CarStudio::~CarStudio() {}
 
 String CarStudio::get_system_info() {
-    return "🔥 Open3D Core V2: Multi-Mode Selection (Vertex/Edge/Face/Object) + Clean BMesh Active!";
+    return "🔥 Open3D Core: True Blender BMesh Extrusion + Multi-Mode Active!";
 }
 
 void CarStudio::create_cube(float size) {
@@ -61,12 +61,47 @@ void CarStudio::create_cube(float size) {
         m_mesh.add_quad(v3, v7, v4, v0); // Left
         m_mesh.add_quad(v4, v7, v6, v5); // Top
         m_mesh.add_quad(v0, v1, v2, v3); // Bottom
+
+        set_selected_index(4); // تحديد الوجه العلوي افتراضياً
     } catch (...) {}
 }
 
-void CarStudio::set_selection_mode(int mode) { m_mode = mode; m_selected_idx = -1; }
+void CarStudio::set_selection_mode(int mode) { 
+    m_mode = mode; 
+    m_selected_idx = -1;
+    m_active_vertices.clear();
+}
+
 int CarStudio::get_selection_mode() const { return m_mode; }
-void CarStudio::set_selected_index(int index) { m_selected_idx = index; }
+
+void CarStudio::set_selected_index(int index) { 
+    m_selected_idx = index;
+    m_active_vertices.clear();
+
+    if (m_selected_idx < 0) return;
+
+    try {
+        if (m_mode == MODE_FACE && m_selected_idx < (int)m_mesh.n_faces()) {
+            for (auto v : m_mesh.vertices(pmp::Face(m_selected_idx))) {
+                m_active_vertices.push_back(v);
+            }
+        }
+        else if (m_mode == MODE_EDGE && m_selected_idx < (int)m_mesh.n_edges()) {
+            pmp::Edge e(m_selected_idx);
+            m_active_vertices.push_back(m_mesh.vertex(e, 0));
+            m_active_vertices.push_back(m_mesh.vertex(e, 1));
+        }
+        else if (m_mode == MODE_VERTEX && m_selected_idx < (int)m_mesh.n_vertices()) {
+            m_active_vertices.push_back(pmp::Vertex(m_selected_idx));
+        }
+        else if (m_mode == MODE_OBJECT) {
+            for (auto v : m_mesh.vertices()) {
+                m_active_vertices.push_back(v);
+            }
+        }
+    } catch (...) {}
+}
+
 int CarStudio::get_selected_index() const { return m_selected_idx; }
 
 int CarStudio::get_face_count() const { return (int)m_mesh.n_faces(); }
@@ -74,37 +109,23 @@ int CarStudio::get_vertex_count() const { return (int)m_mesh.n_vertices(); }
 int CarStudio::get_edge_count() const { return (int)m_mesh.n_edges(); }
 
 Vector3 CarStudio::get_selection_center() const {
-    if (m_mesh.is_empty()) return Vector3(0, 0.75f, 0);
+    if (m_mesh.is_empty() || m_active_vertices.empty()) return Vector3(0, 0.75f, 0);
 
-    if (m_mode == MODE_FACE && m_selected_idx >= 0 && m_selected_idx < (int)m_mesh.n_faces()) {
-        pmp::Face f(m_selected_idx);
-        pmp::Point c(0, 0, 0); int cnt = 0;
-        for (auto v : m_mesh.vertices(f)) { c += m_mesh.position(v); cnt++; }
-        if (cnt > 0) c /= float(cnt);
-        return Vector3(c[0], c[1], c[2]);
+    pmp::Point c(0, 0, 0);
+    for (auto v : m_active_vertices) {
+        c += m_mesh.position(v);
     }
-    else if (m_mode == MODE_EDGE && m_selected_idx >= 0 && m_selected_idx < (int)m_mesh.n_edges()) {
-        pmp::Edge e(m_selected_idx);
-        pmp::Point c = (m_mesh.position(m_mesh.vertex(e, 0)) + m_mesh.position(m_mesh.vertex(e, 1))) * 0.5f;
-        return Vector3(c[0], c[1], c[2]);
-    }
-    else if (m_mode == MODE_VERTEX && m_selected_idx >= 0 && m_selected_idx < (int)m_mesh.n_vertices()) {
-        pmp::Point p = m_mesh.position(pmp::Vertex(m_selected_idx));
-        return Vector3(p[0], p[1], p[2]);
-    }
-    else if (m_mode == MODE_OBJECT) {
-        pmp::Point c(0, 0, 0); int cnt = 0;
-        for (auto v : m_mesh.vertices()) { c += m_mesh.position(v); cnt++; }
-        if (cnt > 0) c /= float(cnt);
-        return Vector3(c[0], c[1], c[2]);
-    }
-    return Vector3(0, 0.75f, 0);
+    c /= float(m_active_vertices.size());
+    return Vector3(c[0], c[1], c[2]);
 }
 
-// اصطياد دقيق بالأشعة حسب الوضع المختار
-int CarStudio::pick_element(Vector3 ray_from, Vector3 ray_dir, float) {
+// ==============================================================================
+// 🎯 اصطياد دقيق بالأشعة حسب الوضع (Blender Raycast Selection)
+// ==============================================================================
+int CarStudio::pick_element(Vector3 ray_from, Vector3 ray_dir) {
     if (m_mesh.is_empty()) return -1;
 
+    // 1. اصطياد الأوجه (Face Mode)
     if (m_mode == MODE_FACE) {
         int best_face = -1; float min_t = 1e9f; int f_idx = 0;
         for (auto f : m_mesh.faces()) {
@@ -117,7 +138,7 @@ int CarStudio::pick_element(Vector3 ray_from, Vector3 ray_dir, float) {
             Vector3 v2(pts[2][0], pts[2][1], pts[2][2]);
             Vector3 normal = (v1 - v0).cross(v2 - v0).normalized();
 
-            if (normal.dot(ray_dir) > -0.01f) { f_idx++; continue; }
+            if (normal.dot(ray_dir) > -0.01f) { f_idx++; continue; } // عزل الأوجه الخلفية
 
             for (size_t i = 1; i < pts.size() - 1; ++i) {
                 Vector3 tv0(pts[0][0], pts[0][1], pts[0][2]);
@@ -141,59 +162,120 @@ int CarStudio::pick_element(Vector3 ray_from, Vector3 ray_dir, float) {
         }
         return best_face;
     }
+    // 2. اصطياد الحواف (Edge Mode)
+    else if (m_mode == MODE_EDGE) {
+        int best_edge = -1; float min_dist = 0.25f; int e_idx = 0;
+        for (auto e : m_mesh.edges()) {
+            pmp::Point p1 = m_mesh.position(m_mesh.vertex(e, 0));
+            pmp::Point p2 = m_mesh.position(m_mesh.vertex(e, 1));
+            Vector3 v1(p1[0], p1[1], p1[2]); Vector3 v2(p2[0], p2[1], p2[2]);
+            Vector3 mid = (v1 + v2) * 0.5f;
+
+            Vector3 to_mid = mid - ray_from;
+            float proj = to_mid.dot(ray_dir);
+            if (proj > 0.0f) {
+                Vector3 close_pt = ray_from + ray_dir * proj;
+                float d = (mid - close_pt).length();
+                if (d < min_dist) { min_dist = d; best_edge = e_idx; }
+            }
+            e_idx++;
+        }
+        return best_edge;
+    }
+    // 3. اصطياد النقاط (Vertex Mode)
+    else if (m_mode == MODE_VERTEX) {
+        int best_vert = -1; float min_dist = 0.25f; int v_idx = 0;
+        for (auto v : m_mesh.vertices()) {
+            pmp::Point p = m_mesh.position(v);
+            Vector3 vp(p[0], p[1], p[2]);
+            Vector3 to_v = vp - ray_from;
+            float proj = to_v.dot(ray_dir);
+            if (proj > 0.0f) {
+                Vector3 close_pt = ray_from + ray_dir * proj;
+                float d = (vp - close_pt).length();
+                if (d < min_dist) { min_dist = d; best_vert = v_idx; }
+            }
+            v_idx++;
+        }
+        return best_vert;
+    }
+    // 4. اصطياد المجسم (Object Mode)
+    else if (m_mode == MODE_OBJECT) {
+        return 0; // تحديد المجسم بالكامل
+    }
+
     return -1;
 }
 
 // ==============================================================================
-// 🚀 خوارزمية البثق الحقيقية (Blender BMesh Method — لا حذف ولا قفز للتحديد)
+// 🚀 خوارزمية البثق الحقيقية المطابقة لـ Blender BMesh
 // ==============================================================================
 bool CarStudio::extrude_selected(float distance) {
     try {
         if (m_mode != MODE_FACE || m_selected_idx < 0 || m_selected_idx >= (int)m_mesh.n_faces()) return false;
 
-        pmp::Face top_face(m_selected_idx);
-        std::vector<pmp::Vertex> top_verts;
-        for (auto v : m_mesh.vertices(top_face)) top_verts.push_back(v);
-        if (top_verts.size() != 4) return false;
+        pmp::Face old_face(m_selected_idx);
+        std::vector<pmp::Vertex> base_verts;
+        for (auto v : m_mesh.vertices(old_face)) base_verts.push_back(v);
+        if (base_verts.size() != 4) return false;
 
-        // 1. حساب النورمال
-        pmp::Point p0 = m_mesh.position(top_verts[0]);
-        pmp::Point p1 = m_mesh.position(top_verts[1]);
-        pmp::Point p2 = m_mesh.position(top_verts[2]);
+        // 1. حساب اتجاه النورمال
+        pmp::Point p0 = m_mesh.position(base_verts[0]);
+        pmp::Point p1 = m_mesh.position(base_verts[1]);
+        pmp::Point p2 = m_mesh.position(base_verts[2]);
         Vector3 gp0(p0[0], p0[1], p0[2]); Vector3 gp1(p1[0], p1[1], p1[2]); Vector3 gp2(p2[0], p2[1], p2[2]);
         Vector3 gnorm = (gp1 - gp0).cross(gp2 - gp0).normalized();
         pmp::Point normal(gnorm.x, gnorm.y, gnorm.z);
 
-        // 2. إنشاء 4 نقاط جديدة للقاعدة في نفس المكان القديم
-        std::vector<pmp::Vertex> base_verts;
+        // 2. إنشاء 4 رؤوس جديدة مستقلة تماماً للقمة
+        std::vector<pmp::Vertex> new_top_verts;
         for (int i = 0; i < 4; ++i) {
-            base_verts.push_back(m_mesh.add_vertex(m_mesh.position(top_verts[i])));
+            pmp::Point new_pos = m_mesh.position(base_verts[i]) + normal * distance;
+            new_top_verts.push_back(m_mesh.add_vertex(new_pos));
         }
 
-        // 3. تحريك رؤوس الوجه المختار للأمام بالمسافة المحددة (يظل نفس الوجه وبنفس الفهرس!)
-        for (int i = 0; i < 4; ++i) {
-            m_mesh.position(top_verts[i]) += normal * distance;
-        }
+        // 3. حذف الوجه القديم لكي لا يتبقى أي وجه محبوس في الداخل
+        m_mesh.delete_face(old_face);
 
-        // 4. بناء الجدران الجانبية الـ 4 بين القاعدة والقمة
+        // 4. بناء الجدران الجانبية الأربعة بين القاعدة الساكنة والرؤوس الجديدة المتحركة
         for (int i = 0; i < 4; ++i) {
             int nxt = (i + 1) % 4;
-            m_mesh.add_quad(base_verts[i], base_verts[nxt], top_verts[nxt], top_verts[i]);
+            m_mesh.add_quad(base_verts[i], base_verts[nxt], new_top_verts[nxt], new_top_verts[i]);
         }
 
-        // الوجه المختار يظل كما هو m_selected_idx بدون أي قفز!
+        // 5. بناء السطح العلوي الجديد وجعله هو الوجه المختار
+        auto top_face = m_mesh.add_quad(new_top_verts[0], new_top_verts[1], new_top_verts[2], new_top_verts[3]);
+        
+        // 6. تعيين الرؤوس النشطة للتحريك لتكون الرؤوس الجديدة فقط (القاعدة تظل ثابتة كالصخر!)
+        set_selected_index(top_face.idx());
+
         return true;
     } catch (...) {
         return false;
     }
 }
 
+// 🗑️ حذف العنصر مع تنظيف الذاكرة التلقائي (Garbage Collection)
 bool CarStudio::delete_selected() {
     try {
-        if (m_mode == MODE_FACE && m_selected_idx >= 0 && m_selected_idx < (int)m_mesh.n_faces()) {
+        if (m_selected_idx < 0) return false;
+
+        if (m_mode == MODE_FACE && m_selected_idx < (int)m_mesh.n_faces()) {
             m_mesh.delete_face(pmp::Face(m_selected_idx));
             m_mesh.garbage_collection();
-            m_selected_idx = -1;
+            set_selected_index(-1);
+            return true;
+        }
+        else if (m_mode == MODE_VERTEX && m_selected_idx < (int)m_mesh.n_vertices()) {
+            m_mesh.delete_vertex(pmp::Vertex(m_selected_idx));
+            m_mesh.garbage_collection();
+            set_selected_index(-1);
+            return true;
+        }
+        else if (m_mode == MODE_EDGE && m_selected_idx < (int)m_mesh.n_edges()) {
+            m_mesh.delete_edge(pmp::Edge(m_selected_idx));
+            m_mesh.garbage_collection();
+            set_selected_index(-1);
             return true;
         }
     } catch (...) {}
@@ -204,26 +286,24 @@ bool CarStudio::apply_subdivision() {
     try {
         if (m_mesh.is_empty()) return false;
         pmp::catmull_clark_subdivision(m_mesh);
+        set_selected_index(-1);
         return true;
     } catch (...) { return false; }
 }
 
+// ✥ تحريك الرؤوس النشطة التابعة للعنصر المختار فقط دون التأثير على باقي المجسم
 bool CarStudio::move_selected(Vector3 offset) {
     try {
+        if (m_active_vertices.empty()) return false;
         pmp::Point off(offset.x, offset.y, offset.z);
-        if (m_mode == MODE_FACE && m_selected_idx >= 0 && m_selected_idx < (int)m_mesh.n_faces()) {
-            for (auto v : m_mesh.vertices(pmp::Face(m_selected_idx))) m_mesh.position(v) += off;
-            return true;
+        for (auto v : m_active_vertices) {
+            m_mesh.position(v) += off;
         }
-        else if (m_mode == MODE_OBJECT) {
-            for (auto v : m_mesh.vertices()) m_mesh.position(v) += off;
-            return true;
-        }
-    } catch (...) {}
-    return false;
+        return true;
+    } catch (...) { return false; }
 }
 
-// توليد الميش بنورمال مسطح حاد وتمييز التحديد
+// توليد المجسم بنورمال مسطح حاد، وتمييز العنصر المختار
 Ref<ArrayMesh> CarStudio::generate_godot_mesh() {
     Ref<SurfaceTool> st;
     st.instantiate();
@@ -232,7 +312,10 @@ Ref<ArrayMesh> CarStudio::generate_godot_mesh() {
     try {
         int current_f_idx = 0;
         for (auto f : m_mesh.faces()) {
-            bool is_selected = (m_mode == MODE_FACE && current_f_idx == m_selected_idx) || (m_mode == MODE_OBJECT && m_selected_idx == 0);
+            bool is_selected = false;
+            if (m_mode == MODE_FACE && current_f_idx == m_selected_idx) is_selected = true;
+            else if (m_mode == MODE_OBJECT && m_selected_idx == 0) is_selected = true;
+
             Color col = is_selected ? Color(0.25f, 1.0f, 0.25f, 1.0f) : Color(0.82f, 0.85f, 0.90f, 1.0f);
 
             std::vector<pmp::Point> pts;
