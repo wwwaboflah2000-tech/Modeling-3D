@@ -11,12 +11,20 @@
 
 namespace godot {
 
+enum SelectionMode {
+    MODE_VERTEX = 0,
+    MODE_EDGE = 1,
+    MODE_FACE = 2,
+    MODE_OBJECT = 3
+};
+
 class CarStudio : public Node {
     GDCLASS(CarStudio, Node);
 
 private:
     pmp::SurfaceMesh m_mesh;
-    int m_selected_face;
+    int m_mode; // 0=Vertex, 1=Edge, 2=Face, 3=Object
+    int m_selected_idx;
 
 protected:
     static void _bind_methods();
@@ -28,19 +36,27 @@ public:
     String get_system_info();
     
     void create_cube(float size);
-    void select_face(int face_index);
-    int get_selected_face() const;
+    
+    // إدارة الأوضاع والتحديد
+    void set_selection_mode(int mode);
+    int get_selection_mode() const;
+    void set_selected_index(int index);
+    int get_selected_index() const;
+    
     int get_face_count() const;
     int get_vertex_count() const;
-    Vector3 get_selected_face_center() const;
+    int get_edge_count() const;
     
-    // دالة اصطياد وتحديد الوجه الملموس بدقة بالغة مع عزل الأوجه الخلفية
-    int raycast_face(Vector3 ray_from, Vector3 ray_dir);
+    Vector3 get_selection_center() const;
     
-    bool extrude_selected_face(float distance);
-    bool delete_selected_face();
+    // اصطياد العناصر بالأشعة حسب الوضع النشط
+    int pick_element(Vector3 ray_from, Vector3 ray_dir, float max_dist_px = 50.0f);
+    
+    // عمليات النمذجة المنقحة (Blender-Grade Extrusion)
+    bool extrude_selected(float distance);
+    bool delete_selected();
     bool apply_subdivision();
-    bool move_selected_face(Vector3 offset);
+    bool move_selected(Vector3 offset);
     
     Ref<ArrayMesh> generate_godot_mesh();
 };
