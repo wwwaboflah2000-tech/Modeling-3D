@@ -4,11 +4,10 @@
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/array_mesh.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/vector3.hpp>
 
-// استدعاء ملفات PMP بالأسماء الرسمية بحروف صغيرة
 #include <pmp/surface_mesh.h>
 #include <pmp/algorithms/subdivision.h>
-#include <pmp/algorithms/normals.h>
 
 namespace godot {
 
@@ -34,6 +33,9 @@ public:
     int get_face_count() const;
     int get_vertex_count() const;
     Vector3 get_selected_face_center() const;
+    
+    // دالة اصطياد وتحديد الوجه الملموس بدقة بالغة مع عزل الأوجه الخلفية
+    int raycast_face(Vector3 ray_from, Vector3 ray_dir);
     
     bool extrude_selected_face(float distance);
     bool delete_selected_face();
