@@ -8,6 +8,7 @@
 
 #include <pmp/surface_mesh.h>
 #include <pmp/algorithms/subdivision.h>
+#include <vector>
 
 namespace godot {
 
@@ -25,6 +26,9 @@ private:
     pmp::SurfaceMesh m_mesh;
     int m_mode; // 0=Vertex, 1=Edge, 2=Face, 3=Object
     int m_selected_idx;
+
+    // الرؤوس النشطة التابعة للعنصر المختار (للتحريك المنعزل)
+    std::vector<pmp::Vertex> m_active_vertices;
 
 protected:
     static void _bind_methods();
@@ -49,10 +53,10 @@ public:
     
     Vector3 get_selection_center() const;
     
-    // اصطياد العناصر بالأشعة حسب الوضع النشط
-    int pick_element(Vector3 ray_from, Vector3 ray_dir, float max_dist_px = 50.0f);
+    // اصطياد العناصر بالأشعة (Raycasting)
+    int pick_element(Vector3 ray_from, Vector3 ray_dir);
     
-    // عمليات النمذجة المنقحة (Blender-Grade Extrusion)
+    // عمليات النمذجة (Blender BMesh Engine)
     bool extrude_selected(float distance);
     bool delete_selected();
     bool apply_subdivision();
