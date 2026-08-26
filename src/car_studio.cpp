@@ -31,7 +31,7 @@ CarStudio::CarStudio() {
 CarStudio::~CarStudio() {}
 
 String CarStudio::get_system_info() {
-    return "🔥 Open3D Core: Sharp Flat Shading + Precision Touch Raycasting Active!";
+    return "🔥 Open3D Core V1.0 Stable (PMP Half-Edge + Manifold Extrude Active)!";
 }
 
 void CarStudio::create_cube(float size) {
@@ -83,9 +83,7 @@ Vector3 CarStudio::get_selected_face_center() const {
     return Vector3(c[0], c[1], c[2]);
 }
 
-// ==============================================================================
-// 🎯 خوارزمية اصطياد الوجه الملموس بالأشعة (Möller–Trumbore Raycasting)
-// ==============================================================================
+// اصطياد الأوجه بدقة بالغة بالأشعة
 int CarStudio::raycast_face(Vector3 ray_from, Vector3 ray_dir) {
     int best_face = -1;
     float min_t = 1e9f;
@@ -103,10 +101,9 @@ int CarStudio::raycast_face(Vector3 ray_from, Vector3 ray_dir) {
         Vector3 v2(pts[2][0], pts[2][1], pts[2][2]);
         Vector3 normal = (v1 - v0).cross(v2 - v0).normalized();
 
-        // عزل الأوجه الخلفية المعاكسة للكاميرا (Backface Culling)
+        // عزل الأوجه الخلفية (Backface Culling)
         if (normal.dot(ray_dir) > -0.01f) { f_idx++; continue; }
 
-        // فحص تقاطع الشعاع مع مثلثات الوجه
         for (size_t i = 1; i < pts.size() - 1; ++i) {
             Vector3 tv0(pts[0][0], pts[0][1], pts[0][2]);
             Vector3 tv1(pts[i][0], pts[i][1], pts[i][2]);
@@ -138,6 +135,7 @@ int CarStudio::raycast_face(Vector3 ray_from, Vector3 ray_dir) {
     return best_face;
 }
 
+// البثق النظيف الخالي من الأوجه المحبوسة
 bool CarStudio::extrude_selected_face(float distance) {
     try {
         if (m_selected_face < 0 || m_selected_face >= (int)m_mesh.n_faces()) return false;
@@ -180,6 +178,7 @@ bool CarStudio::extrude_selected_face(float distance) {
     }
 }
 
+// الحذف وتطهير النقاط اليتيمة تلقائياً
 bool CarStudio::delete_selected_face() {
     try {
         if (m_selected_face < 0 || m_selected_face >= (int)m_mesh.n_faces()) return false;
@@ -219,7 +218,7 @@ bool CarStudio::move_selected_face(Vector3 offset) {
     }
 }
 
-// توليد الميش بنورمال مسطح حاد (Flat Shading) وتلوين الوجه المختار بالأخضر الصريح
+// توليد المجسم بنورمال مسطح حاد (Flat Shading)
 Ref<ArrayMesh> CarStudio::generate_godot_mesh() {
     Ref<SurfaceTool> st;
     st.instantiate();
@@ -229,7 +228,6 @@ Ref<ArrayMesh> CarStudio::generate_godot_mesh() {
         int current_f_idx = 0;
         for (auto f : m_mesh.faces()) {
             bool is_selected = (current_f_idx == m_selected_face);
-            // أخضر ساطع للوجه المختار، ورمادي ناصع للأوجه الأخرى
             Color col = is_selected ? Color(0.25f, 1.0f, 0.25f, 1.0f) : Color(0.82f, 0.85f, 0.90f, 1.0f);
 
             std::vector<pmp::Point> pts;
@@ -244,12 +242,10 @@ Ref<ArrayMesh> CarStudio::generate_godot_mesh() {
                 Vector3 fnorm = (p1 - p0).cross(p2 - p0).normalized();
 
                 if (pts.size() == 4) {
-                    // المثلث الأول
                     st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0, 0)); st->add_vertex(Vector3(pts[0][0], pts[0][1], pts[0][2]));
                     st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(1, 0)); st->add_vertex(Vector3(pts[1][0], pts[1][1], pts[1][2]));
                     st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(1, 1)); st->add_vertex(Vector3(pts[2][0], pts[2][1], pts[2][2]));
 
-                    // المثلث الثاني
                     st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(1, 1)); st->add_vertex(Vector3(pts[2][0], pts[2][1], pts[2][2]));
                     st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0, 1)); st->add_vertex(Vector3(pts[3][0], pts[3][1], pts[3][2]));
                     st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0, 0)); st->add_vertex(Vector3(pts[0][0], pts[0][1], pts[0][2]));
