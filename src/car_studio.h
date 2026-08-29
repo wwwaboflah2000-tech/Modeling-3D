@@ -24,10 +24,8 @@ class CarStudio : public Node {
 
 private:
     pmp::SurfaceMesh m_mesh;
-    int m_mode; // 0=Vertex, 1=Edge, 2=Face, 3=Object
+    int m_mode;
     int m_selected_idx;
-
-    // الرؤوس النشطة التابعة للعنصر المختار (للتحريك المنعزل)
     std::vector<pmp::Vertex> m_active_vertices;
 
 protected:
@@ -38,10 +36,8 @@ public:
     ~CarStudio();
 
     String get_system_info();
-    
     void create_cube(float size);
     
-    // إدارة الأوضاع والتحديد
     void set_selection_mode(int mode);
     int get_selection_mode() const;
     void set_selected_index(int index);
@@ -52,11 +48,10 @@ public:
     int get_edge_count() const;
     
     Vector3 get_selection_center() const;
+    Vector3 get_selection_normal() const; // دالة اتجاه النورمال للجزمو
     
-    // اصطياد العناصر بالأشعة (Raycasting)
     int pick_element(Vector3 ray_from, Vector3 ray_dir);
     
-    // عمليات النمذجة (Blender BMesh Engine)
     bool extrude_selected(float distance);
     bool delete_selected();
     bool apply_subdivision();
