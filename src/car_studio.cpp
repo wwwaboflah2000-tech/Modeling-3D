@@ -20,6 +20,7 @@ void CarStudio::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_vertex_count"), &CarStudio::get_vertex_count);
     ClassDB::bind_method(D_METHOD("get_edge_count"), &CarStudio::get_edge_count);
     ClassDB::bind_method(D_METHOD("get_selection_center"), &CarStudio::get_selection_center);
+    ClassDB::bind_method(D_METHOD("get_selection_normal"), &CarStudio::get_selection_normal);
     ClassDB::bind_method(D_METHOD("pick_element", "ray_from", "ray_dir"), &CarStudio::pick_element);
     
     ClassDB::bind_method(D_METHOD("extrude_selected", "distance"), &CarStudio::extrude_selected);
@@ -37,7 +38,7 @@ CarStudio::CarStudio() {
 CarStudio::~CarStudio() {}
 
 String CarStudio::get_system_info() {
-    return "⚡ Blender-grade BMesh Engine Active!";
+    return "⚡ Blender-grade BMesh Engine: Active";
 }
 
 void CarStudio::create_cube(float size) {
@@ -64,7 +65,7 @@ void CarStudio::create_cube(float size) {
         auto top_f = m_mesh.add_quad(v4, v7, v6, v5); // Top
         m_mesh.add_quad(v0, v1, v2, v3); // Bottom
 
-        set_selected_index(top_f.idx()); // تحديد الوجه العلوي افتراضياً
+        set_selected_index(top_f.idx());
     } catch (...) {}
 }
 
@@ -121,7 +122,6 @@ void CarStudio::set_selected_index(int index) {
 }
 
 int CarStudio::get_selected_index() const { return m_selected_idx; }
-
 int CarStudio::get_face_count() const { return (int)m_mesh.n_faces(); }
 int CarStudio::get_vertex_count() const { return (int)m_mesh.n_vertices(); }
 int CarStudio::get_edge_count() const { return (int)m_mesh.n_edges(); }
@@ -142,6 +142,23 @@ Vector3 CarStudio::get_selection_center() const {
     return Vector3(c[0], c[1], c[2]);
 }
 
+Vector3 CarStudio::get_selection_normal() const {
+    if (m_mode == MODE_FACE && m_selected_idx >= 0) {
+        pmp::Face f(m_selected_idx);
+        if (m_mesh.is_valid(f)) {
+            std::vector<pmp::Point> pts;
+            for (auto v : m_mesh.vertices(f)) pts.push_back(m_mesh.position(v));
+            if (pts.size() >= 3) {
+                Vector3 v0(pts[0][0], pts[0][1], pts[0][2]);
+                Vector3 v1(pts[1][0], pts[1][1], pts[1][2]);
+                Vector3 v2(pts[2][0], pts[2][1], pts[2][2]);
+                return (v1 - v0).cross(v2 - v0).normalized();
+            }
+        }
+    }
+    return Vector3(0, 1, 0); // الافتراضي للأعلى
+}
+
 int CarStudio::pick_element(Vector3 ray_from, Vector3 ray_dir) {
     if (m_mesh.is_empty()) return -1;
 
@@ -159,7 +176,7 @@ int CarStudio::pick_element(Vector3 ray_from, Vector3 ray_dir) {
             Vector3 v2(pts[2][0], pts[2][1], pts[2][2]);
             Vector3 normal = (v1 - v0).cross(v2 - v0).normalized();
 
-            if (normal.dot(ray_dir) > -0.001f) continue; // عزل الأوجه الخلفية
+            if (normal.dot(ray_dir) > -0.001f) continue;
 
             for (size_t i = 1; i < pts.size() - 1; ++i) {
                 Vector3 tv0(pts[0][0], pts[0][1], pts[0][2]);
@@ -253,7 +270,6 @@ bool CarStudio::extrude_selected(float distance) {
         size_t n = base_verts.size();
         if (n < 3) return false;
 
-        // 1. حساب النورمال للوجه بدقة
         pmp::Point p0 = m_mesh.position(base_verts[0]);
         pmp::Point p1 = m_mesh.position(base_verts[1]);
         pmp::Point p2 = m_mesh.position(base_verts[2]);
@@ -263,23 +279,19 @@ bool CarStudio::extrude_selected(float distance) {
         Vector3 gnorm = (gp1 - gp0).cross(gp2 - gp0).normalized();
         pmp::Point normal(gnorm.x, gnorm.y, gnorm.z);
 
-        // 2. إنشاء رؤوس جديدة للسطح العلوي
         std::vector<pmp::Vertex> new_top_verts;
         for (size_t i = 0; i < n; ++i) {
             pmp::Point new_pos = m_mesh.position(base_verts[i]) + normal * distance;
             new_top_verts.push_back(m_mesh.add_vertex(new_pos));
         }
 
-        // 3. حذف الوجه القديم
         m_mesh.delete_face(old_face);
 
-        // 4. بناء الجدران الجانبية
         for (size_t i = 0; i < n; ++i) {
             size_t nxt = (i + 1) % n;
             m_mesh.add_quad(base_verts[i], base_verts[nxt], new_top_verts[nxt], new_top_verts[i]);
         }
 
-        // 5. بناء السطح العلوي الجديد
         pmp::Face top_face;
         if (n == 3) {
             top_face = m_mesh.add_triangle(new_top_verts[0], new_top_verts[1], new_top_verts[2]);
@@ -289,9 +301,7 @@ bool CarStudio::extrude_selected(float distance) {
             top_face = m_mesh.add_face(new_top_verts);
         }
 
-        // 6. تحديد الوجه الجديد فوراً
         set_selected_index(top_face.idx());
-
         return true;
     } catch (...) {
         return false;
@@ -356,6 +366,7 @@ bool CarStudio::move_selected(Vector3 offset) {
     } catch (...) { return false; }
 }
 
+// توليد الميش بدون أي خطوط مائلة وبدقة نقية للأوجه
 Ref<ArrayMesh> CarStudio::generate_godot_mesh() {
     Ref<SurfaceTool> st;
     st.instantiate();
@@ -378,14 +389,32 @@ Ref<ArrayMesh> CarStudio::generate_godot_mesh() {
                 Vector3 p2(pts[2][0], pts[2][1], pts[2][2]);
                 Vector3 fnorm = (p1 - p0).cross(p2 - p0).normalized();
 
-                for (size_t i = 1; i < pts.size() - 1; ++i) {
+                if (pts.size() == 4) {
+                    // توزيع UV رباعي نظيف يقضي على الخط المائل نهائياً
                     Vector3 v0(pts[0][0], pts[0][1], pts[0][2]);
-                    Vector3 v1(pts[i][0], pts[i][1], pts[i][2]);
-                    Vector3 v2(pts[i + 1][0], pts[i + 1][1], pts[i + 1][2]);
+                    Vector3 v1(pts[1][0], pts[1][1], pts[1][2]);
+                    Vector3 v2(pts[2][0], pts[2][1], pts[2][2]);
+                    Vector3 v3(pts[3][0], pts[3][1], pts[3][2]);
 
+                    // المثلث الأول (v0, v1, v2)
                     st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0, 0)); st->add_vertex(v0);
                     st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(1, 0)); st->add_vertex(v1);
                     st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(1, 1)); st->add_vertex(v2);
+
+                    // المثلث الثاني (v0, v2, v3)
+                    st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0, 0)); st->add_vertex(v0);
+                    st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(1, 1)); st->add_vertex(v2);
+                    st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0, 1)); st->add_vertex(v3);
+                } else {
+                    for (size_t i = 1; i < pts.size() - 1; ++i) {
+                        Vector3 v0(pts[0][0], pts[0][1], pts[0][2]);
+                        Vector3 v1(pts[i][0], pts[i][1], pts[i][2]);
+                        Vector3 v2(pts[i + 1][0], pts[i + 1][1], pts[i + 1][2]);
+
+                        st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0, 0)); st->add_vertex(v0);
+                        st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(1, 0)); st->add_vertex(v1);
+                        st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0.5, 1)); st->add_vertex(v2);
+                    }
                 }
             }
         }
