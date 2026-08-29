@@ -48,11 +48,13 @@ public:
     int get_edge_count() const;
     
     Vector3 get_selection_center() const;
-    Vector3 get_selection_normal() const; // دالة اتجاه النورمال للجزمو
+    Vector3 get_selection_normal() const;
     
     int pick_element(Vector3 ray_from, Vector3 ray_dir);
     
     bool extrude_selected(float distance);
+    bool subdivide_selected_face();
+    bool dissolve_selected(); // ميزة إذابة الحافة ودمج الوجهين
     bool delete_selected();
     bool apply_subdivision();
     bool move_selected(Vector3 offset);
