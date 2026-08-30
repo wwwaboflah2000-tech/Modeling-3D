@@ -4,6 +4,7 @@
 #include <godot_cpp/variant/vector3.hpp>
 #include <godot_cpp/variant/color.hpp>
 #include <godot_cpp/variant/vector2.hpp>
+#include <cmath>
 
 using namespace godot;
 
@@ -23,12 +24,17 @@ void CarStudio::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_selection_normal"), &CarStudio::get_selection_normal);
     ClassDB::bind_method(D_METHOD("pick_element", "ray_from", "ray_dir"), &CarStudio::pick_element);
     
+    // التحويلات
+    ClassDB::bind_method(D_METHOD("move_selected", "offset"), &CarStudio::move_selected);
+    ClassDB::bind_method(D_METHOD("rotate_selected", "axis", "angle_rad", "center"), &CarStudio::rotate_selected);
+    ClassDB::bind_method(D_METHOD("scale_selected", "scale_factors", "center"), &CarStudio::scale_selected);
+    
+    // النمذجة
     ClassDB::bind_method(D_METHOD("extrude_selected", "distance"), &CarStudio::extrude_selected);
     ClassDB::bind_method(D_METHOD("subdivide_selected_face"), &CarStudio::subdivide_selected_face);
     ClassDB::bind_method(D_METHOD("dissolve_selected"), &CarStudio::dissolve_selected);
     ClassDB::bind_method(D_METHOD("delete_selected"), &CarStudio::delete_selected);
     ClassDB::bind_method(D_METHOD("apply_subdivision"), &CarStudio::apply_subdivision);
-    ClassDB::bind_method(D_METHOD("move_selected", "offset"), &CarStudio::move_selected);
     ClassDB::bind_method(D_METHOD("generate_godot_mesh"), &CarStudio::generate_godot_mesh);
 }
 
@@ -40,7 +46,7 @@ CarStudio::CarStudio() {
 CarStudio::~CarStudio() {}
 
 String CarStudio::get_system_info() {
-    return "⚡ Blender Engine: Dissolve & Merge Faces Active";
+    return "⚡ Blender Engine Pro: Edge & Face Extrude Active";
 }
 
 void CarStudio::create_cube(float size) {
@@ -161,34 +167,48 @@ Vector3 CarStudio::get_selection_normal() const {
     else if (m_mode == MODE_EDGE && m_selected_idx >= 0) {
         pmp::Edge e(m_selected_idx);
         if (m_mesh.is_valid(e)) {
+            pmp::Halfedge h0 = m_mesh.halfedge(e, 0);
+            pmp::Halfedge h1 = m_mesh.halfedge(e, 1);
+            pmp::Face f0 = m_mesh.face(h0);
+            pmp::Face f1 = m_mesh.face(h1);
+
+            Vector3 avg_norm(0, 0, 0);
+            int f_count = 0;
+
+            if (m_mesh.is_valid(f0)) {
+                std::vector<pmp::Point> pts;
+                for (auto v : m_mesh.vertices(f0)) pts.push_back(m_mesh.position(v));
+                if (pts.size() >= 3) {
+                    Vector3 v0(pts[0][0], pts[0][1], pts[0][2]);
+                    Vector3 v1(pts[1][0], pts[1][1], pts[1][2]);
+                    Vector3 v2(pts[2][0], pts[2][1], pts[2][2]);
+                    avg_norm += (v1 - v0).cross(v2 - v0).normalized();
+                    f_count++;
+                }
+            }
+            if (m_mesh.is_valid(f1)) {
+                std::vector<pmp::Point> pts;
+                for (auto v : m_mesh.vertices(f1)) pts.push_back(m_mesh.position(v));
+                if (pts.size() >= 3) {
+                    Vector3 v0(pts[0][0], pts[0][1], pts[0][2]);
+                    Vector3 v1(pts[1][0], pts[1][1], pts[1][2]);
+                    Vector3 v2(pts[2][0], pts[2][1], pts[2][2]);
+                    avg_norm += (v1 - v0).cross(v2 - v0).normalized();
+                    f_count++;
+                }
+            }
+
+            if (f_count > 0 && avg_norm.length_squared() > 0.001f) {
+                return avg_norm.normalized();
+            }
+
             pmp::Vertex v0 = m_mesh.vertex(e, 0);
             pmp::Vertex v1 = m_mesh.vertex(e, 1);
             pmp::Point p0 = m_mesh.position(v0);
             pmp::Point p1 = m_mesh.position(v1);
             Vector3 ev = Vector3(p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]).normalized();
-
-            pmp::Halfedge h = m_mesh.halfedge(e, 0);
-            pmp::Face f = m_mesh.face(h);
-            if (!m_mesh.is_valid(f)) {
-                h = m_mesh.halfedge(e, 1);
-                f = m_mesh.face(h);
-            }
-
-            Vector3 fn(0, 1, 0);
-            if (m_mesh.is_valid(f)) {
-                std::vector<pmp::Point> fpts;
-                for (auto fv : m_mesh.vertices(f)) fpts.push_back(m_mesh.position(fv));
-                if (fpts.size() >= 3) {
-                    Vector3 gv0(fpts[0][0], fpts[0][1], fpts[0][2]);
-                    Vector3 gv1(fpts[1][0], fpts[1][1], fpts[1][2]);
-                    Vector3 gv2(fpts[2][0], fpts[2][1], fpts[2][2]);
-                    fn = (gv1 - gv0).cross(gv2 - gv0).normalized();
-                }
-            }
-
-            Vector3 out_dir = ev.cross(fn).normalized();
-            if (out_dir.length_squared() > 0.001f) return out_dir;
-            return fn;
+            Vector3 out = ev.cross(Vector3(0, 1, 0)).normalized();
+            if (out.length_squared() > 0.001f) return out;
         }
     }
     return Vector3(0, 1, 0);
@@ -198,9 +218,7 @@ int CarStudio::pick_element(Vector3 ray_from, Vector3 ray_dir) {
     if (m_mesh.is_empty()) return -1;
 
     if (m_mode == MODE_FACE) {
-        int best_face = -1; 
-        float min_t = 1e9f;
-
+        int best_face = -1; float min_t = 1e9f;
         for (auto f : m_mesh.faces()) {
             std::vector<pmp::Point> pts;
             for (auto v : m_mesh.vertices(f)) pts.push_back(m_mesh.position(v));
@@ -218,39 +236,28 @@ int CarStudio::pick_element(Vector3 ray_from, Vector3 ray_dir) {
                 Vector3 tv1(pts[i][0], pts[i][1], pts[i][2]);
                 Vector3 tv2(pts[i + 1][0], pts[i + 1][1], pts[i + 1][2]);
 
-                Vector3 edge1 = tv1 - tv0; 
-                Vector3 edge2 = tv2 - tv0;
-                Vector3 pvec = ray_dir.cross(edge2); 
-                float det = edge1.dot(pvec);
+                Vector3 edge1 = tv1 - tv0; Vector3 edge2 = tv2 - tv0;
+                Vector3 pvec = ray_dir.cross(edge2); float det = edge1.dot(pvec);
                 if (det <= 1e-7f) continue;
-
                 float inv_det = 1.0f / det;
                 Vector3 tvec = ray_from - tv0;
                 float u = tvec.dot(pvec) * inv_det;
                 if (u < 0.0f || u > 1.0f) continue;
-
                 Vector3 qvec = tvec.cross(edge1);
                 float v = ray_dir.dot(qvec) * inv_det;
                 if (v < 0.0f || u + v > 1.0f) continue;
-
                 float t = edge2.dot(qvec) * inv_det;
-                if (t > 1e-4f && t < min_t) { 
-                    min_t = t; 
-                    best_face = f.idx(); 
-                }
+                if (t > 1e-4f && t < min_t) { min_t = t; best_face = f.idx(); }
             }
         }
         return best_face;
     }
     else if (m_mode == MODE_EDGE) {
-        int best_edge = -1; 
-        float min_dist = 0.25f;
-
+        int best_edge = -1; float min_dist = 0.25f;
         for (auto e : m_mesh.edges()) {
             pmp::Point p1 = m_mesh.position(m_mesh.vertex(e, 0));
             pmp::Point p2 = m_mesh.position(m_mesh.vertex(e, 1));
-            Vector3 v1(p1[0], p1[1], p1[2]); 
-            Vector3 v2(p2[0], p2[1], p2[2]);
+            Vector3 v1(p1[0], p1[1], p1[2]); Vector3 v2(p2[0], p2[1], p2[2]);
             Vector3 mid = (v1 + v2) * 0.5f;
 
             Vector3 to_mid = mid - ray_from;
@@ -258,18 +265,13 @@ int CarStudio::pick_element(Vector3 ray_from, Vector3 ray_dir) {
             if (proj > 0.0f) {
                 Vector3 close_pt = ray_from + ray_dir * proj;
                 float d = (mid - close_pt).length();
-                if (d < min_dist) { 
-                    min_dist = d; 
-                    best_edge = e.idx(); 
-                }
+                if (d < min_dist) { min_dist = d; best_edge = e.idx(); }
             }
         }
         return best_edge;
     }
     else if (m_mode == MODE_VERTEX) {
-        int best_vert = -1; 
-        float min_dist = 0.25f;
-
+        int best_vert = -1; float min_dist = 0.25f;
         for (auto v : m_mesh.vertices()) {
             pmp::Point p = m_mesh.position(v);
             Vector3 vp(p[0], p[1], p[2]);
@@ -278,10 +280,7 @@ int CarStudio::pick_element(Vector3 ray_from, Vector3 ray_dir) {
             if (proj > 0.0f) {
                 Vector3 close_pt = ray_from + ray_dir * proj;
                 float d = (vp - close_pt).length();
-                if (d < min_dist) { 
-                    min_dist = d; 
-                    best_vert = v.idx(); 
-                }
+                if (d < min_dist) { min_dist = d; best_vert = v.idx(); }
             }
         }
         return best_vert;
@@ -289,12 +288,62 @@ int CarStudio::pick_element(Vector3 ray_from, Vector3 ray_dir) {
     else if (m_mode == MODE_OBJECT) {
         return 0;
     }
-
     return -1;
 }
 
+bool CarStudio::move_selected(Vector3 offset) {
+    try {
+        if (m_active_vertices.empty()) return false;
+        pmp::Point off(offset.x, offset.y, offset.z);
+        for (auto v : m_active_vertices) {
+            if (m_mesh.is_valid(v)) {
+                m_mesh.position(v) += off;
+            }
+        }
+        return true;
+    } catch (...) { return false; }
+}
+
+bool CarStudio::rotate_selected(Vector3 axis, float angle_rad, Vector3 center) {
+    try {
+        if (m_active_vertices.empty() || axis.length_squared() < 1e-6f) return false;
+        Vector3 u = axis.normalized();
+        float cos_a = cos(angle_rad);
+        float sin_a = sin(angle_rad);
+
+        for (auto v : m_active_vertices) {
+            if (m_mesh.is_valid(v)) {
+                pmp::Point p = m_mesh.position(v);
+                Vector3 v_pos(p[0] - center.x, p[1] - center.y, p[2] - center.z);
+                Vector3 rot = v_pos * cos_a + u.cross(v_pos) * sin_a + u * u.dot(v_pos) * (1.0f - cos_a);
+                Vector3 final_p = center + rot;
+                m_mesh.position(v) = pmp::Point(final_p.x, final_p.y, final_p.z);
+            }
+        }
+        return true;
+    } catch (...) { return false; }
+}
+
+bool CarStudio::scale_selected(Vector3 scale_factors, Vector3 center) {
+    try {
+        if (m_active_vertices.empty()) return false;
+        for (auto v : m_active_vertices) {
+            if (m_mesh.is_valid(v)) {
+                pmp::Point p = m_mesh.position(v);
+                Vector3 v_pos(p[0] - center.x, p[1] - center.y, p[2] - center.z);
+                Vector3 scaled(v_pos.x * scale_factors.x, v_pos.y * scale_factors.y, v_pos.z * scale_factors.z);
+                Vector3 final_p = center + scaled;
+                m_mesh.position(v) = pmp::Point(final_p.x, final_p.y, final_p.z);
+            }
+        }
+        return true;
+    } catch (...) { return false; }
+}
+
+// 🚀 خوارزمية البثق المتطورة للحواف والأوجه مع حماية الـ Manifold
 bool CarStudio::extrude_selected(float distance) {
     try {
+        // 1. بثق الأوجه (Face Extrude)
         if (m_mode == MODE_FACE && m_selected_idx >= 0) {
             pmp::Face old_face(m_selected_idx);
             if (!m_mesh.is_valid(old_face)) return false;
@@ -323,21 +372,22 @@ bool CarStudio::extrude_selected(float distance) {
 
             for (size_t i = 0; i < n; ++i) {
                 size_t nxt = (i + 1) % n;
-                m_mesh.add_quad(base_verts[i], base_verts[nxt], new_top_verts[nxt], new_top_verts[i]);
+                auto q = m_mesh.add_quad(base_verts[i], base_verts[nxt], new_top_verts[nxt], new_top_verts[i]);
+                if (!q.is_valid()) {
+                    m_mesh.add_triangle(base_verts[i], base_verts[nxt], new_top_verts[nxt]);
+                    m_mesh.add_triangle(base_verts[i], new_top_verts[nxt], new_top_verts[i]);
+                }
             }
 
             pmp::Face top_face;
-            if (n == 3) {
-                top_face = m_mesh.add_triangle(new_top_verts[0], new_top_verts[1], new_top_verts[2]);
-            } else if (n == 4) {
-                top_face = m_mesh.add_quad(new_top_verts[0], new_top_verts[1], new_top_verts[2], new_top_verts[3]);
-            } else {
-                top_face = m_mesh.add_face(new_top_verts);
-            }
+            if (n == 3) top_face = m_mesh.add_triangle(new_top_verts[0], new_top_verts[1], new_top_verts[2]);
+            else if (n == 4) top_face = m_mesh.add_quad(new_top_verts[0], new_top_verts[1], new_top_verts[2], new_top_verts[3]);
+            else top_face = m_mesh.add_face(new_top_verts);
 
             set_selected_index(top_face.idx());
             return true;
         }
+        // 2. بثق الحواف (Edge Extrude)
         else if (m_mode == MODE_EDGE && m_selected_idx >= 0) {
             pmp::Edge e(m_selected_idx);
             if (!m_mesh.is_valid(e)) return false;
@@ -353,12 +403,31 @@ bool CarStudio::extrude_selected(float distance) {
             pmp::Vertex nv0 = m_mesh.add_vertex(p0 + normal * distance);
             pmp::Vertex nv1 = m_mesh.add_vertex(p1 + normal * distance);
 
-            m_mesh.add_quad(v0, v1, nv1, nv0);
+            pmp::Halfedge h0 = m_mesh.halfedge(e, 0);
+            pmp::Halfedge h1 = m_mesh.halfedge(e, 1);
 
-            pmp::Halfedge new_h = m_mesh.find_halfedge(nv0, nv1);
-            if (!m_mesh.is_valid(new_h)) {
-                new_h = m_mesh.find_halfedge(nv1, nv0);
+            pmp::Face new_quad;
+            // فحص نوع الحافة لضمان مطابقة الـ Halfedge دون أي خطأ
+            if (m_mesh.is_boundary(h0)) {
+                new_quad = m_mesh.add_quad(v0, v1, nv1, nv0);
+            } else if (m_mesh.is_boundary(h1)) {
+                new_quad = m_mesh.add_quad(v1, v0, nv0, nv1);
+            } else {
+                // إذا كانت الحافة مغلقة بين وجهين في مكعب، ننشئ امتداداً مستقلاً
+                pmp::Vertex bv0 = m_mesh.add_vertex(p0);
+                pmp::Vertex bv1 = m_mesh.add_vertex(p1);
+                new_quad = m_mesh.add_quad(bv0, bv1, nv1, nv0);
             }
+
+            if (!new_quad.is_valid()) {
+                pmp::Vertex bv0 = m_mesh.add_vertex(p0);
+                pmp::Vertex bv1 = m_mesh.add_vertex(p1);
+                new_quad = m_mesh.add_quad(bv0, bv1, nv1, nv0);
+            }
+
+            // تحديد الحافة الجديدة المنبثقة فوراً
+            pmp::Halfedge new_h = m_mesh.find_halfedge(nv0, nv1);
+            if (!m_mesh.is_valid(new_h)) new_h = m_mesh.find_halfedge(nv1, nv0);
 
             if (m_mesh.is_valid(new_h)) {
                 pmp::Edge new_edge = m_mesh.edge(new_h);
@@ -370,9 +439,7 @@ bool CarStudio::extrude_selected(float distance) {
             }
             return true;
         }
-    } catch (...) {
-        return false;
-    }
+    } catch (...) { return false; }
     return false;
 }
 
@@ -407,52 +474,27 @@ bool CarStudio::subdivide_selected_face() {
 
             set_selected_index(q0.idx());
             return true;
-        } else if (verts.size() == 3) {
-            pmp::Point p0 = m_mesh.position(verts[0]);
-            pmp::Point p1 = m_mesh.position(verts[1]);
-            pmp::Point p2 = m_mesh.position(verts[2]);
-
-            pmp::Vertex m0 = m_mesh.add_vertex((p0 + p1) * 0.5f);
-            pmp::Vertex m1 = m_mesh.add_vertex((p1 + p2) * 0.5f);
-            pmp::Vertex m2 = m_mesh.add_vertex((p2 + p0) * 0.5f);
-
-            m_mesh.delete_face(f);
-
-            auto t0 = m_mesh.add_triangle(verts[0], m0, m2);
-            m_mesh.add_triangle(m0, verts[1], m1);
-            m_mesh.add_triangle(m2, m1, verts[2]);
-            m_mesh.add_triangle(m0, m1, m2);
-
-            set_selected_index(t0.idx());
-            return true;
         }
-    } catch (...) {
-        return false;
-    }
+    } catch (...) {}
     return false;
 }
 
-// 🔗 إذابة الحافة ودمج الوجهين المتلاصقين (Dissolve Edge / Merge Faces)
 bool CarStudio::dissolve_selected() {
     try {
         if (m_selected_idx < 0) return false;
-
         if (m_mode == MODE_EDGE) {
             pmp::Edge e(m_selected_idx);
-            if (m_mesh.is_valid(e)) {
-                if (m_mesh.is_removal_ok(e)) {
-                    m_mesh.remove_edge(e); // دمج الوجهين وإزالة الحافة المشتركة
-                    m_mesh.garbage_collection();
-                    set_selected_index(-1);
-                    return true;
-                }
+            if (m_mesh.is_valid(e) && m_mesh.is_removal_ok(e)) {
+                m_mesh.remove_edge(e);
+                m_mesh.garbage_collection();
+                set_selected_index(-1);
+                return true;
             }
         }
     } catch (...) {}
     return false;
 }
 
-// 🗑️ الحذف الذكي (Smart Delete)
 bool CarStudio::delete_selected() {
     try {
         if (m_selected_idx < 0) return false;
@@ -478,12 +520,8 @@ bool CarStudio::delete_selected() {
         else if (m_mode == MODE_EDGE) {
             pmp::Edge e(m_selected_idx);
             if (m_mesh.is_valid(e)) {
-                // إذا كانت الحافة بين وجهين، نذيبها أولاً لدمجهما؛ وإن لم يمكن نحذفها
-                if (m_mesh.is_removal_ok(e)) {
-                    m_mesh.remove_edge(e);
-                } else {
-                    m_mesh.delete_edge(e);
-                }
+                if (m_mesh.is_removal_ok(e)) m_mesh.remove_edge(e);
+                else m_mesh.delete_edge(e);
                 m_mesh.garbage_collection();
                 set_selected_index(-1);
                 return true;
@@ -503,19 +541,6 @@ bool CarStudio::apply_subdivision() {
     } catch (...) { return false; }
 }
 
-bool CarStudio::move_selected(Vector3 offset) {
-    try {
-        if (m_active_vertices.empty()) return false;
-        pmp::Point off(offset.x, offset.y, offset.z);
-        for (auto v : m_active_vertices) {
-            if (m_mesh.is_valid(v)) {
-                m_mesh.position(v) += off;
-            }
-        }
-        return true;
-    } catch (...) { return false; }
-}
-
 Ref<ArrayMesh> CarStudio::generate_godot_mesh() {
     Ref<SurfaceTool> st;
     st.instantiate();
@@ -527,7 +552,7 @@ Ref<ArrayMesh> CarStudio::generate_godot_mesh() {
             if (m_mode == MODE_FACE && f.idx() == m_selected_idx) is_selected = true;
             else if (m_mode == MODE_OBJECT && m_selected_idx == 0) is_selected = true;
 
-            Color col = is_selected ? Color(0.25f, 1.0f, 0.25f, 1.0f) : Color(0.82f, 0.85f, 0.90f, 1.0f);
+            Color col = is_selected ? Color(1.0f, 0.55f, 0.15f, 1.0f) : Color(0.68f, 0.72f, 0.78f, 1.0f);
 
             std::vector<pmp::Point> pts;
             for (auto v : m_mesh.vertices(f)) pts.push_back(m_mesh.position(v));
@@ -544,22 +569,22 @@ Ref<ArrayMesh> CarStudio::generate_godot_mesh() {
                     Vector3 v2(pts[2][0], pts[2][1], pts[2][2]);
                     Vector3 v3(pts[3][0], pts[3][1], pts[3][2]);
 
-                    st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0, 0)); st->add_vertex(v0);
-                    st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(1, 0)); st->add_vertex(v1);
-                    st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(1, 1)); st->add_vertex(v2);
+                    st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0.0f, 0.0f)); st->add_vertex(v0);
+                    st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(1.0f, 0.0f)); st->add_vertex(v1);
+                    st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(1.0f, 1.0f)); st->add_vertex(v2);
 
-                    st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0, 0)); st->add_vertex(v0);
-                    st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(1, 1)); st->add_vertex(v2);
-                    st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0, 1)); st->add_vertex(v3);
+                    st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0.0f, 0.0f)); st->add_vertex(v0);
+                    st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(1.0f, 1.0f)); st->add_vertex(v2);
+                    st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0.0f, 1.0f)); st->add_vertex(v3);
                 } else {
                     for (size_t i = 1; i < pts.size() - 1; ++i) {
                         Vector3 v0(pts[0][0], pts[0][1], pts[0][2]);
                         Vector3 v1(pts[i][0], pts[i][1], pts[i][2]);
                         Vector3 v2(pts[i + 1][0], pts[i + 1][1], pts[i + 1][2]);
 
-                        st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0, 0)); st->add_vertex(v0);
-                        st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(1, 0)); st->add_vertex(v1);
-                        st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0.5, 1)); st->add_vertex(v2);
+                        st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0.0f, 0.0f)); st->add_vertex(v0);
+                        st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(1.0f, 0.0f)); st->add_vertex(v1);
+                        st->set_normal(fnorm); st->set_color(col); st->set_uv(Vector2(0.5f, 1.0f)); st->add_vertex(v2);
                     }
                 }
             }
