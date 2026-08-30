@@ -52,12 +52,17 @@ public:
     
     int pick_element(Vector3 ray_from, Vector3 ray_dir);
     
+    // عمليات التحويل ثلاثية الأبعاد (Transform Operations)
+    bool move_selected(Vector3 offset);
+    bool rotate_selected(Vector3 axis, float angle_rad, Vector3 center);
+    bool scale_selected(Vector3 scale_factors, Vector3 center);
+    
+    // عمليات النمذجة (Modeling Operations)
     bool extrude_selected(float distance);
     bool subdivide_selected_face();
-    bool dissolve_selected(); // ميزة إذابة الحافة ودمج الوجهين
+    bool dissolve_selected();
     bool delete_selected();
     bool apply_subdivision();
-    bool move_selected(Vector3 offset);
     
     Ref<ArrayMesh> generate_godot_mesh();
 };
