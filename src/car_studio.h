@@ -5,9 +5,6 @@
 #include <godot_cpp/classes/array_mesh.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/vector3.hpp>
-
-#include <pmp/surface_mesh.h>
-#include <pmp/algorithms/subdivision.h>
 #include <vector>
 
 namespace godot {
@@ -19,14 +16,36 @@ enum SelectionMode {
     MODE_OBJECT = 3
 };
 
+// بنية طوبولوجيا BMesh المرنة (تدعم أي عدد من الأوجه لكل حافة)
+struct BMeshVertex {
+    Vector3 pos;
+    bool deleted = false;
+};
+
+struct BMeshFace {
+    std::vector<int> verts;
+    bool deleted = false;
+};
+
+struct BMeshEdge {
+    int v0, v1;
+    bool deleted = false;
+};
+
 class CarStudio : public Node {
     GDCLASS(CarStudio, Node);
 
 private:
-    pmp::SurfaceMesh m_mesh;
+    std::vector<BMeshVertex> m_vertices;
+    std::vector<BMeshFace> m_faces;
+    std::vector<BMeshEdge> m_edges;
+
     int m_mode;
     int m_selected_idx;
-    std::vector<pmp::Vertex> m_active_vertices;
+    std::vector<int> m_active_vertex_indices;
+
+    void rebuild_edges();
+    Vector3 calculate_face_normal(const BMeshFace& f) const;
 
 protected:
     static void _bind_methods();
@@ -52,12 +71,12 @@ public:
     
     int pick_element(Vector3 ray_from, Vector3 ray_dir);
     
-    // عمليات التحويل ثلاثية الأبعاد (Transform Operations)
+    // التحويلات
     bool move_selected(Vector3 offset);
     bool rotate_selected(Vector3 axis, float angle_rad, Vector3 center);
     bool scale_selected(Vector3 scale_factors, Vector3 center);
     
-    // عمليات النمذجة (Modeling Operations)
+    // النمذجة (Blender BMesh Core)
     bool extrude_selected(float distance);
     bool subdivide_selected_face();
     bool dissolve_selected();
