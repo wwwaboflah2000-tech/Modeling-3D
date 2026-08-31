@@ -6,6 +6,7 @@
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 #include <vector>
+#include <utility>
 
 namespace godot {
 
@@ -16,7 +17,6 @@ enum SelectionMode {
     MODE_OBJECT = 3
 };
 
-// بنية طوبولوجيا BMesh المرنة (تدعم أي عدد من الأوجه لكل حافة)
 struct BMeshVertex {
     Vector3 pos;
     bool deleted = false;
@@ -71,17 +71,15 @@ public:
     
     int pick_element(Vector3 ray_from, Vector3 ray_dir);
     
-    // التحويلات
     bool move_selected(Vector3 offset);
     bool rotate_selected(Vector3 axis, float angle_rad, Vector3 center);
     bool scale_selected(Vector3 scale_factors, Vector3 center);
     
-    // النمذجة (Blender BMesh Core)
     bool extrude_selected(float distance);
     bool subdivide_selected_face();
     bool dissolve_selected();
     bool delete_selected();
-    bool apply_subdivision();
+    bool apply_subdivision(); // خوارزمية Catmull-Clark المحكمة بالكامل
     
     Ref<ArrayMesh> generate_godot_mesh();
 };
