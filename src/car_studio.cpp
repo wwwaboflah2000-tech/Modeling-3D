@@ -7,6 +7,7 @@
 #include <cmath>
 #include <algorithm>
 #include <map>
+#include <set>
 
 using namespace godot;
 
@@ -26,12 +27,10 @@ void CarStudio::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_selection_normal"), &CarStudio::get_selection_normal);
     ClassDB::bind_method(D_METHOD("pick_element", "ray_from", "ray_dir"), &CarStudio::pick_element);
     
-    // التحويلات
     ClassDB::bind_method(D_METHOD("move_selected", "offset"), &CarStudio::move_selected);
     ClassDB::bind_method(D_METHOD("rotate_selected", "axis", "angle_rad", "center"), &CarStudio::rotate_selected);
     ClassDB::bind_method(D_METHOD("scale_selected", "scale_factors", "center"), &CarStudio::scale_selected);
     
-    // النمذجة
     ClassDB::bind_method(D_METHOD("extrude_selected", "distance"), &CarStudio::extrude_selected);
     ClassDB::bind_method(D_METHOD("subdivide_selected_face"), &CarStudio::subdivide_selected_face);
     ClassDB::bind_method(D_METHOD("dissolve_selected"), &CarStudio::dissolve_selected);
@@ -48,7 +47,7 @@ CarStudio::CarStudio() {
 CarStudio::~CarStudio() {}
 
 String CarStudio::get_system_info() {
-    return "⚡ Blender BMesh Core: Connected Topology Active";
+    return "⚡ Blender BMesh Engine: 100% Welded Topology Active";
 }
 
 void CarStudio::rebuild_edges() {
@@ -96,7 +95,6 @@ void CarStudio::create_cube(float size) {
 
     float h = size * 0.5f;
 
-    // 8 رؤوس
     m_vertices.push_back({ Vector3(-h, 0.0f, -h), false }); // 0
     m_vertices.push_back({ Vector3( h, 0.0f, -h), false }); // 1
     m_vertices.push_back({ Vector3( h, 0.0f,  h), false }); // 2
@@ -106,7 +104,6 @@ void CarStudio::create_cube(float size) {
     m_vertices.push_back({ Vector3( h, size,  h), false }); // 6
     m_vertices.push_back({ Vector3(-h, size,  h), false }); // 7
 
-    // 6 أوجه
     m_faces.push_back({ {0, 4, 5, 1}, false }); // Front
     m_faces.push_back({ {1, 5, 6, 2}, false }); // Right
     m_faces.push_back({ {2, 6, 7, 3}, false }); // Back
@@ -115,7 +112,7 @@ void CarStudio::create_cube(float size) {
     m_faces.push_back({ {0, 1, 2, 3}, false }); // Bottom
 
     rebuild_edges();
-    set_selected_index(4); // تحديد الوجه العلوي
+    set_selected_index(4);
 }
 
 void CarStudio::set_selection_mode(int mode) {
@@ -197,7 +194,6 @@ Vector3 CarStudio::get_selection_normal() const {
 
         if (incident_count > 0 && avg_norm.length_squared() > 1e-4f) {
             Vector3 N = avg_norm.normalized();
-            // Gram-Schmidt
             Vector3 D = (N - T * T.dot(N)).normalized();
             if (D.length_squared() > 1e-4f) return D;
         }
@@ -315,9 +311,7 @@ bool CarStudio::scale_selected(Vector3 scale_factors, Vector3 center) {
     return true;
 }
 
-// 🚀 خوارزمية البثق الحقيقية المطابقة لـ Blender BMesh
 bool CarStudio::extrude_selected(float distance) {
-    // 1. بثق الأوجه (Face Extrude)
     if (m_mode == MODE_FACE && m_selected_idx >= 0 && m_selected_idx < (int)m_faces.size()) {
         BMeshFace& old_f = m_faces[m_selected_idx];
         if (old_f.deleted || old_f.verts.size() < 3) return false;
@@ -348,7 +342,6 @@ bool CarStudio::extrude_selected(float distance) {
         set_selected_index(top_face_idx);
         return true;
     }
-    // 2. بثق الحواف (Edge Extrude) - الربط الطوبولوجي الكامل مع Gram-Schmidt
     else if (m_mode == MODE_EDGE && m_selected_idx >= 0 && m_selected_idx < (int)m_edges.size()) {
         const BMeshEdge& e = m_edges[m_selected_idx];
         if (e.deleted) return false;
@@ -360,18 +353,16 @@ bool CarStudio::extrude_selected(float distance) {
 
         Vector3 norm_dir = get_selection_normal();
 
-        // إنشاء رأسين جديدين فقط للقمة
         int nv0 = (int)m_vertices.size();
         m_vertices.push_back({ p0 + norm_dir * distance, false });
         int nv1 = (int)m_vertices.size();
         m_vertices.push_back({ p1 + norm_dir * distance, false });
 
-        // ربط الوجه الرباعي الجديد بنفس الرؤوس الأصلية v0 و v1 مباشرة!
+        // ربط مباشر بالرؤوس الأصلية v0 و v1
         m_faces.push_back({ {v0, v1, nv1, nv0}, false });
 
         rebuild_edges();
 
-        // العثور على الحافة الجديدة (nv0 - nv1) وتحديدها للجزمو
         int a = std::min(nv0, nv1);
         int b = std::max(nv0, nv1);
         for (size_t i = 0; i < m_edges.size(); ++i) {
@@ -476,44 +467,122 @@ bool CarStudio::delete_selected() {
     return false;
 }
 
+// 🌟 خوارزمية Catmull-Clark الحقيقية المحكمة 100% بدون أي انفصال للأوجه
 bool CarStudio::apply_subdivision() {
-    // تنعيم Catmull-Clark
-    std::vector<Vector3> face_points;
-    for (const auto& f : m_faces) {
+    if (m_faces.empty()) return false;
+
+    // 1. حساب نقاط الأوجه (Face Points)
+    std::vector<int> face_point_indices(m_faces.size(), -1);
+    for (size_t f_idx = 0; f_idx < m_faces.size(); ++f_idx) {
+        const auto& f = m_faces[f_idx];
         if (f.deleted || f.verts.empty()) continue;
-        Vector3 avg(0, 0, 0);
+
+        Vector3 avg = Vector3(0, 0, 0);
         for (int vi : f.verts) avg += m_vertices[vi].pos;
-        face_points.push_back(avg / float(f.verts.size()));
+        avg /= float(f.verts.size());
+
+        face_point_indices[f_idx] = (int)m_vertices.size();
+        m_vertices.push_back({ avg, false });
     }
 
+    // 2. تجميع الأوجه المتصلة بكل حافة وبكل رأس
+    std::map<std::pair<int, int>, std::vector<int>> edge_to_faces;
+    std::map<int, std::vector<int>> vert_to_faces;
+    std::map<int, std::vector<std::pair<int, int>>> vert_to_edges;
+
+    for (size_t f_idx = 0; f_idx < m_faces.size(); ++f_idx) {
+        const auto& f = m_faces[f_idx];
+        if (f.deleted) continue;
+        size_t n = f.verts.size();
+        for (size_t i = 0; i < n; ++i) {
+            int u = f.verts[i];
+            int v = f.verts[(i + 1) % n];
+            int a = std::min(u, v);
+            int b = std::max(u, v);
+            std::pair<int, int> edge_key = {a, b};
+
+            edge_to_faces[edge_key].push_back((int)f_idx);
+            vert_to_faces[u].push_back((int)f_idx);
+            vert_to_edges[u].push_back(edge_key);
+        }
+    }
+
+    // 3. حساب نقاط الحواف المشتركة (Shared Edge Points) لجميع الأوجه المتجاورة
+    std::map<std::pair<int, int>, int> edge_point_indices;
+    for (auto const& [edge_key, inc_faces] : edge_to_faces) {
+        int u = edge_key.first;
+        int v = edge_key.second;
+        Vector3 pu = m_vertices[u].pos;
+        Vector3 pv = m_vertices[v].pos;
+
+        Vector3 edge_pt;
+        if (inc_faces.size() == 2) {
+            Vector3 fp0 = m_vertices[face_point_indices[inc_faces[0]]].pos;
+            Vector3 fp1 = m_vertices[face_point_indices[inc_faces[1]]].pos;
+            edge_pt = (pu + pv + fp0 + fp1) * 0.25f; // معادلة Catmull-Clark
+        } else {
+            edge_pt = (pu + pv) * 0.5f;
+        }
+
+        edge_point_indices[edge_key] = (int)m_vertices.size();
+        m_vertices.push_back({ edge_pt, false });
+    }
+
+    // 4. تنعيم الرؤوس الأصلية (Vertex Smoothing)
+    size_t old_vert_count = m_vertices.size();
+    for (size_t vi = 0; vi < old_vert_count; ++vi) {
+        if (m_vertices[vi].deleted || vert_to_faces.find((int)vi) == vert_to_faces.end()) continue;
+
+        const auto& inc_faces = vert_to_faces[(int)vi];
+        const auto& inc_edges = vert_to_edges[(int)vi];
+        int n = (int)inc_faces.size();
+
+        if (n >= 3) {
+            Vector3 Q = Vector3(0, 0, 0);
+            for (int fi : inc_faces) Q += m_vertices[face_point_indices[fi]].pos;
+            Q /= float(n);
+
+            Vector3 R = Vector3(0, 0, 0);
+            for (const auto& ek : inc_edges) {
+                int other = (ek.first == (int)vi) ? ek.second : ek.first;
+                R += (m_vertices[vi].pos + m_vertices[other].pos) * 0.5f;
+            }
+            R /= float(inc_edges.size());
+
+            Vector3 new_v_pos = (Q + R * 2.0f + m_vertices[vi].pos * float(n - 3)) / float(n);
+            m_vertices[vi].pos = new_v_pos;
+        }
+    }
+
+    // 5. بناء الأوجه المربعة الملتصقة 100%
     std::vector<BMeshFace> new_faces;
     for (size_t f_idx = 0; f_idx < m_faces.size(); ++f_idx) {
         const auto& f = m_faces[f_idx];
-        if (f.deleted || f.verts.size() != 4) continue;
-        int c = (int)m_vertices.size();
-        m_vertices.push_back({ face_points[f_idx], false });
+        if (f.deleted || f.verts.size() < 3) continue;
 
-        int v0 = f.verts[0], v1 = f.verts[1], v2 = f.verts[2], v3 = f.verts[3];
-        Vector3 p0 = m_vertices[v0].pos, p1 = m_vertices[v1].pos, p2 = m_vertices[v2].pos, p3 = m_vertices[v3].pos;
+        int fp_idx = face_point_indices[f_idx];
+        size_t n = f.verts.size();
 
-        int m0 = (int)m_vertices.size(); m_vertices.push_back({ (p0 + p1) * 0.5f, false });
-        int m1 = (int)m_vertices.size(); m_vertices.push_back({ (p1 + p2) * 0.5f, false });
-        int m2 = (int)m_vertices.size(); m_vertices.push_back({ (p2 + p3) * 0.5f, false });
-        int m3 = (int)m_vertices.size(); m_vertices.push_back({ (p3 + p0) * 0.5f, false });
+        for (size_t i = 0; i < n; ++i) {
+            int v_curr = f.verts[i];
+            int v_prev = f.verts[(i + n - 1) % n];
+            int v_next = f.verts[(i + 1) % n];
 
-        new_faces.push_back({ {v0, m0, c, m3}, false });
-        new_faces.push_back({ {m0, v1, m1, c}, false });
-        new_faces.push_back({ {c, m1, v2, m2}, false });
-        new_faces.push_back({ {m3, c, m2, v3}, false });
+            std::pair<int, int> edge_prev = { std::min(v_prev, v_curr), std::max(v_prev, v_curr) };
+            std::pair<int, int> edge_next = { std::min(v_curr, v_next), std::max(v_curr, v_next) };
+
+            int ep_prev = edge_point_indices[edge_prev];
+            int ep_next = edge_point_indices[edge_next];
+
+            // الوجه الرباعي الجديد يشارك نفس الرؤوس بالضبط مع جيرانه
+            new_faces.push_back({ {v_curr, ep_next, fp_idx, ep_prev}, false });
+        }
     }
 
-    if (!new_faces.empty()) {
-        m_faces = new_faces;
-        rebuild_edges();
-        set_selected_index(-1);
-        return true;
-    }
-    return false;
+    m_faces = new_faces;
+    rebuild_edges();
+    set_selected_index(-1);
+    return true;
 }
 
 Ref<ArrayMesh> CarStudio::generate_godot_mesh() {
