@@ -45,6 +45,7 @@ private:
     std::vector<int> m_active_vertex_indices;
 
     void rebuild_edges();
+    void weld_vertices(float threshold = 1e-4f);
     Vector3 calculate_face_normal(const BMeshFace& f) const;
 
 protected:
@@ -79,7 +80,7 @@ public:
     bool subdivide_selected_face();
     bool dissolve_selected();
     bool delete_selected();
-    bool apply_subdivision(); // خوارزمية Catmull-Clark المحكمة بالكامل
+    bool apply_subdivision();
     
     Ref<ArrayMesh> generate_godot_mesh();
 };
