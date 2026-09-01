@@ -47,7 +47,34 @@ CarStudio::CarStudio() {
 CarStudio::~CarStudio() {}
 
 String CarStudio::get_system_info() {
-    return "⚡ Blender BMesh Engine: 100% Welded Topology Active";
+    return "⚡ Blender BMesh Core: Fully Welded & Stable";
+}
+
+void CarStudio::weld_vertices(float threshold) {
+    float th_sq = threshold * threshold;
+    std::map<int, int> remap;
+
+    for (size_t i = 0; i < m_vertices.size(); ++i) {
+        if (m_vertices[i].deleted) continue;
+        remap[(int)i] = (int)i;
+        for (size_t j = 0; j < i; ++j) {
+            if (m_vertices[j].deleted) continue;
+            if ((m_vertices[i].pos - m_vertices[j].pos).length_squared() <= th_sq) {
+                remap[(int)i] = remap[(int)j];
+                m_vertices[i].deleted = true;
+                break;
+            }
+        }
+    }
+
+    for (auto& f : m_faces) {
+        if (f.deleted) continue;
+        for (auto& vi : f.verts) {
+            if (remap.find(vi) != remap.end()) {
+                vi = remap[vi];
+            }
+        }
+    }
 }
 
 void CarStudio::rebuild_edges() {
@@ -213,7 +240,7 @@ int CarStudio::pick_element(Vector3 ray_from, Vector3 ray_dir) {
             if (f.deleted || f.verts.size() < 3) continue;
 
             Vector3 norm = calculate_face_normal(f);
-            if (norm.dot(ray_dir) > -0.001f) continue;
+            if (norm.dot(ray_dir) > 0.05f) continue; // عزل الأوجه الخلفية
 
             for (size_t i = 1; i < f.verts.size() - 1; ++i) {
                 Vector3 tv0 = m_vertices[f.verts[0]].pos;
@@ -222,7 +249,7 @@ int CarStudio::pick_element(Vector3 ray_from, Vector3 ray_dir) {
 
                 Vector3 edge1 = tv1 - tv0; Vector3 edge2 = tv2 - tv0;
                 Vector3 pvec = ray_dir.cross(edge2); float det = edge1.dot(pvec);
-                if (det <= 1e-7f) continue;
+                if (std::fabs(det) <= 1e-7f) continue;
                 float inv_det = 1.0f / det;
                 Vector3 tvec = ray_from - tv0;
                 float u = tvec.dot(pvec) * inv_det;
@@ -358,7 +385,6 @@ bool CarStudio::extrude_selected(float distance) {
         int nv1 = (int)m_vertices.size();
         m_vertices.push_back({ p1 + norm_dir * distance, false });
 
-        // ربط مباشر بالرؤوس الأصلية v0 و v1
         m_faces.push_back({ {v0, v1, nv1, nv0}, false });
 
         rebuild_edges();
@@ -384,11 +410,33 @@ bool CarStudio::subdivide_selected_face() {
     int v0 = f.verts[0], v1 = f.verts[1], v2 = f.verts[2], v3 = f.verts[3];
     Vector3 p0 = m_vertices[v0].pos, p1 = m_vertices[v1].pos, p2 = m_vertices[v2].pos, p3 = m_vertices[v3].pos;
 
-    int m0 = (int)m_vertices.size(); m_vertices.push_back({ (p0 + p1) * 0.5f, false });
-    int m1 = (int)m_vertices.size(); m_vertices.push_back({ (p1 + p2) * 0.5f, false });
-    int m2 = (int)m_vertices.size(); m_vertices.push_back({ (p2 + p3) * 0.5f, false });
-    int m3 = (int)m_vertices.size(); m_vertices.push_back({ (p3 + p0) * 0.5f, false });
-    int c  = (int)m_vertices.size(); m_vertices.push_back({ (p0 + p1 + p2 + p3) * 0.25f, false });
+    auto get_or_create_edge_midpoint = [&](int u, int w, Vector3 pu, Vector3 pw) -> int {
+        int mid_idx = (int)m_vertices.size();
+        m_vertices.push_back({ (pu + pw) * 0.5f, false });
+
+        for (size_t fi = 0; fi < m_faces.size(); ++fi) {
+            if (m_faces[fi].deleted || (int)fi == m_selected_idx) continue;
+            auto& f_verts = m_faces[fi].verts;
+            size_t fn = f_verts.size();
+            for (size_t i = 0; i < fn; ++i) {
+                int cur = f_verts[i];
+                int nxt = f_verts[(i + 1) % fn];
+                if ((cur == u && nxt == w) || (cur == w && nxt == u)) {
+                    f_verts.insert(f_verts.begin() + i + 1, mid_idx);
+                    break;
+                }
+            }
+        }
+        return mid_idx;
+    };
+
+    int m0 = get_or_create_edge_midpoint(v0, v1, p0, p1);
+    int m1 = get_or_create_edge_midpoint(v1, v2, p1, p2);
+    int m2 = get_or_create_edge_midpoint(v2, v3, p2, p3);
+    int m3 = get_or_create_edge_midpoint(v3, v0, p3, p0);
+
+    int c = (int)m_vertices.size();
+    m_vertices.push_back({ (p0 + p1 + p2 + p3) * 0.25f, false });
 
     f.deleted = true;
     int start_f = (int)m_faces.size();
@@ -397,6 +445,7 @@ bool CarStudio::subdivide_selected_face() {
     m_faces.push_back({ {c, m1, v2, m2}, false });
     m_faces.push_back({ {m3, c, m2, v3}, false });
 
+    weld_vertices(1e-4f);
     rebuild_edges();
     set_selected_index(start_f);
     return true;
@@ -422,6 +471,7 @@ bool CarStudio::dissolve_selected() {
     if (inc_f.size() == 2) {
         m_faces[inc_f[0]].deleted = true;
         m_faces[inc_f[1]].deleted = true;
+        weld_vertices(1e-4f);
         rebuild_edges();
         set_selected_index(-1);
         return true;
@@ -467,106 +517,108 @@ bool CarStudio::delete_selected() {
     return false;
 }
 
-// 🌟 خوارزمية Catmull-Clark الحقيقية المحكمة 100% بدون أي انفصال للأوجه
 bool CarStudio::apply_subdivision() {
     if (m_faces.empty()) return false;
+    weld_vertices(1e-4f);
 
-    // 1. حساب نقاط الأوجه (Face Points)
-    std::vector<int> face_point_indices(m_faces.size(), -1);
-    for (size_t f_idx = 0; f_idx < m_faces.size(); ++f_idx) {
-        const auto& f = m_faces[f_idx];
-        if (f.deleted || f.verts.empty()) continue;
-
-        Vector3 avg = Vector3(0, 0, 0);
-        for (int vi : f.verts) avg += m_vertices[vi].pos;
-        avg /= float(f.verts.size());
-
-        face_point_indices[f_idx] = (int)m_vertices.size();
-        m_vertices.push_back({ avg, false });
+    std::vector<Vector3> new_vertices_pos;
+    std::map<int, int> old_to_compact_vert;
+    for (size_t i = 0; i < m_vertices.size(); ++i) {
+        if (!m_vertices[i].deleted) {
+            old_to_compact_vert[(int)i] = (int)new_vertices_pos.size();
+            new_vertices_pos.push_back(m_vertices[i].pos);
+        }
     }
 
-    // 2. تجميع الأوجه المتصلة بكل حافة وبكل رأس
+    std::vector<std::vector<int>> compact_faces;
+    for (const auto& f : m_faces) {
+        if (f.deleted || f.verts.size() < 3) continue;
+        std::vector<int> cf;
+        for (int vi : f.verts) {
+            if (old_to_compact_vert.find(vi) != old_to_compact_vert.end()) {
+                cf.push_back(old_to_compact_vert[vi]);
+            }
+        }
+        if (cf.size() >= 3) compact_faces.push_back(cf);
+    }
+
+    if (compact_faces.empty()) return false;
+    size_t num_orig_verts = new_vertices_pos.size();
+
+    std::vector<int> face_point_indices(compact_faces.size());
+    for (size_t fi = 0; fi < compact_faces.size(); ++fi) {
+        Vector3 avg = Vector3(0, 0, 0);
+        for (int vi : compact_faces[fi]) avg += new_vertices_pos[vi];
+        avg /= float(compact_faces[fi].size());
+        face_point_indices[fi] = (int)new_vertices_pos.size();
+        new_vertices_pos.push_back(avg);
+    }
+
     std::map<std::pair<int, int>, std::vector<int>> edge_to_faces;
     std::map<int, std::vector<int>> vert_to_faces;
     std::map<int, std::vector<std::pair<int, int>>> vert_to_edges;
 
-    for (size_t f_idx = 0; f_idx < m_faces.size(); ++f_idx) {
-        const auto& f = m_faces[f_idx];
-        if (f.deleted) continue;
-        size_t n = f.verts.size();
+    for (size_t fi = 0; fi < compact_faces.size(); ++fi) {
+        size_t n = compact_faces[fi].size();
         for (size_t i = 0; i < n; ++i) {
-            int u = f.verts[i];
-            int v = f.verts[(i + 1) % n];
-            int a = std::min(u, v);
-            int b = std::max(u, v);
-            std::pair<int, int> edge_key = {a, b};
-
-            edge_to_faces[edge_key].push_back((int)f_idx);
-            vert_to_faces[u].push_back((int)f_idx);
+            int u = compact_faces[fi][i];
+            int v = compact_faces[fi][(i + 1) % n];
+            std::pair<int, int> edge_key = { std::min(u, v), std::max(u, v) };
+            edge_to_faces[edge_key].push_back((int)fi);
+            vert_to_faces[u].push_back((int)fi);
             vert_to_edges[u].push_back(edge_key);
         }
     }
 
-    // 3. حساب نقاط الحواف المشتركة (Shared Edge Points) لجميع الأوجه المتجاورة
     std::map<std::pair<int, int>, int> edge_point_indices;
-    for (auto const& [edge_key, inc_faces] : edge_to_faces) {
+    for (const auto& [edge_key, inc_faces] : edge_to_faces) {
         int u = edge_key.first;
         int v = edge_key.second;
-        Vector3 pu = m_vertices[u].pos;
-        Vector3 pv = m_vertices[v].pos;
+        Vector3 pu = new_vertices_pos[u];
+        Vector3 pv = new_vertices_pos[v];
 
         Vector3 edge_pt;
         if (inc_faces.size() == 2) {
-            Vector3 fp0 = m_vertices[face_point_indices[inc_faces[0]]].pos;
-            Vector3 fp1 = m_vertices[face_point_indices[inc_faces[1]]].pos;
-            edge_pt = (pu + pv + fp0 + fp1) * 0.25f; // معادلة Catmull-Clark
+            Vector3 fp0 = new_vertices_pos[face_point_indices[inc_faces[0]]];
+            Vector3 fp1 = new_vertices_pos[face_point_indices[inc_faces[1]]];
+            edge_pt = (pu + pv + fp0 + fp1) * 0.25f;
         } else {
             edge_pt = (pu + pv) * 0.5f;
         }
 
-        edge_point_indices[edge_key] = (int)m_vertices.size();
-        m_vertices.push_back({ edge_pt, false });
+        edge_point_indices[edge_key] = (int)new_vertices_pos.size();
+        new_vertices_pos.push_back(edge_pt);
     }
 
-    // 4. تنعيم الرؤوس الأصلية (Vertex Smoothing)
-    size_t old_vert_count = m_vertices.size();
-    for (size_t vi = 0; vi < old_vert_count; ++vi) {
-        if (m_vertices[vi].deleted || vert_to_faces.find((int)vi) == vert_to_faces.end()) continue;
-
+    for (size_t vi = 0; vi < num_orig_verts; ++vi) {
+        if (vert_to_faces.find((int)vi) == vert_to_faces.end()) continue;
         const auto& inc_faces = vert_to_faces[(int)vi];
         const auto& inc_edges = vert_to_edges[(int)vi];
         int n = (int)inc_faces.size();
-
         if (n >= 3) {
             Vector3 Q = Vector3(0, 0, 0);
-            for (int fi : inc_faces) Q += m_vertices[face_point_indices[fi]].pos;
+            for (int fi : inc_faces) Q += new_vertices_pos[face_point_indices[fi]];
             Q /= float(n);
 
             Vector3 R = Vector3(0, 0, 0);
             for (const auto& ek : inc_edges) {
                 int other = (ek.first == (int)vi) ? ek.second : ek.first;
-                R += (m_vertices[vi].pos + m_vertices[other].pos) * 0.5f;
+                R += (new_vertices_pos[vi] + new_vertices_pos[other]) * 0.5f;
             }
             R /= float(inc_edges.size());
 
-            Vector3 new_v_pos = (Q + R * 2.0f + m_vertices[vi].pos * float(n - 3)) / float(n);
-            m_vertices[vi].pos = new_v_pos;
+            new_vertices_pos[vi] = (Q + R * 2.0f + new_vertices_pos[vi] * float(n - 3)) / float(n);
         }
     }
 
-    // 5. بناء الأوجه المربعة الملتصقة 100%
-    std::vector<BMeshFace> new_faces;
-    for (size_t f_idx = 0; f_idx < m_faces.size(); ++f_idx) {
-        const auto& f = m_faces[f_idx];
-        if (f.deleted || f.verts.size() < 3) continue;
-
-        int fp_idx = face_point_indices[f_idx];
-        size_t n = f.verts.size();
-
+    std::vector<BMeshFace> new_bmesh_faces;
+    for (size_t fi = 0; fi < compact_faces.size(); ++fi) {
+        int fp_idx = face_point_indices[fi];
+        size_t n = compact_faces[fi].size();
         for (size_t i = 0; i < n; ++i) {
-            int v_curr = f.verts[i];
-            int v_prev = f.verts[(i + n - 1) % n];
-            int v_next = f.verts[(i + 1) % n];
+            int v_curr = compact_faces[fi][i];
+            int v_prev = compact_faces[fi][(i + n - 1) % n];
+            int v_next = compact_faces[fi][(i + 1) % n];
 
             std::pair<int, int> edge_prev = { std::min(v_prev, v_curr), std::max(v_prev, v_curr) };
             std::pair<int, int> edge_next = { std::min(v_curr, v_next), std::max(v_curr, v_next) };
@@ -574,12 +626,16 @@ bool CarStudio::apply_subdivision() {
             int ep_prev = edge_point_indices[edge_prev];
             int ep_next = edge_point_indices[edge_next];
 
-            // الوجه الرباعي الجديد يشارك نفس الرؤوس بالضبط مع جيرانه
-            new_faces.push_back({ {v_curr, ep_next, fp_idx, ep_prev}, false });
+            new_bmesh_faces.push_back({ {v_curr, ep_next, fp_idx, ep_prev}, false });
         }
     }
 
-    m_faces = new_faces;
+    m_vertices.clear();
+    for (const auto& p : new_vertices_pos) {
+        m_vertices.push_back({ p, false });
+    }
+    m_faces = new_bmesh_faces;
+
     rebuild_edges();
     set_selected_index(-1);
     return true;
