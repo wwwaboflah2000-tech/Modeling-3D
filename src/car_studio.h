@@ -3,32 +3,28 @@
 
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/array_mesh.hpp>
-#include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/classes/surface_tool.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 #include <vector>
-#include <utility>
 
 namespace godot {
 
-enum SelectionMode {
-    MODE_VERTEX = 0,
-    MODE_EDGE = 1,
-    MODE_FACE = 2,
-    MODE_OBJECT = 3
-};
+enum SelectionMode { MODE_VERTEX = 0, MODE_EDGE = 1, MODE_FACE = 2, MODE_OBJECT = 3 };
 
-struct BMeshVertex {
+// هياكل البيانات النقية (لا مزيد من القيود المعقدة)
+struct CVertex {
     Vector3 pos;
     bool deleted = false;
 };
 
-struct BMeshFace {
-    std::vector<int> verts;
+struct CEdge {
+    int v0, v1;
     bool deleted = false;
 };
 
-struct BMeshEdge {
-    int v0, v1;
+struct CFace {
+    std::vector<int> verts;
+    Vector3 normal;
     bool deleted = false;
 };
 
@@ -36,17 +32,16 @@ class CarStudio : public Node {
     GDCLASS(CarStudio, Node);
 
 private:
-    std::vector<BMeshVertex> m_vertices;
-    std::vector<BMeshFace> m_faces;
-    std::vector<BMeshEdge> m_edges;
+    std::vector<CVertex> m_vertices;
+    std::vector<CEdge> m_edges;
+    std::vector<CFace> m_faces;
 
     int m_mode;
     int m_selected_idx;
-    std::vector<int> m_active_vertex_indices;
+    std::vector<int> m_active_verts; // الرؤوس التي سيحركها الجزمو
 
-    void rebuild_edges();
-    void weld_vertices(float threshold = 1e-4f);
-    Vector3 calculate_face_normal(const BMeshFace& f) const;
+    void update_edges();
+    void update_normals();
 
 protected:
     static void _bind_methods();
@@ -77,14 +72,10 @@ public:
     bool scale_selected(Vector3 scale_factors, Vector3 center);
     
     bool extrude_selected(float distance);
-    bool subdivide_selected_face();
-    bool dissolve_selected();
     bool delete_selected();
-    bool apply_subdivision();
     
     Ref<ArrayMesh> generate_godot_mesh();
 };
 
 }
-
 #endif
